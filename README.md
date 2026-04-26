@@ -1,60 +1,78 @@
-<p align="center"><code>npm i -g @openai/codex</code><br />or <code>brew install --cask codex</code></p>
-<p align="center"><strong>Codex CLI</strong> is a coding agent from OpenAI that runs locally on your computer.
-<p align="center">
-  <img src="https://github.com/openai/codex/blob/main/.github/codex-cli-splash.png" alt="Codex CLI splash" width="80%" />
-</p>
-</br>
-If you want Codex in your code editor (VS Code, Cursor, Windsurf), <a href="https://developers.openai.com/codex/ide">install in your IDE.</a>
-</br>If you want the desktop app experience, run <code>codex app</code> or visit <a href="https://chatgpt.com/codex?app-landing-page=true">the Codex App page</a>.
-</br>If you are looking for the <em>cloud-based agent</em> from OpenAI, <strong>Codex Web</strong>, go to <a href="https://chatgpt.com/codex">chatgpt.com/codex</a>.</p>
+# Grow CLI
 
----
+Grow CLI is a GrowthCircle-focused fork of [OpenAI Codex CLI](https://github.com/openai/codex). It keeps the local coding-agent workflow from Codex and adds a built-in `growthcircle` model provider so GrowthCircle users can use models from https://growthcircle.id/app/ai with one API key.
+
+This repository is open source under Apache-2.0. Upstream attribution and notices are preserved in `LICENSE` and `NOTICE`.
 
 ## Quickstart
 
-### Installing and running Codex CLI
-
-Install globally with your preferred package manager:
+Build and run from source:
 
 ```shell
-# Install using npm
-npm install -g @openai/codex
+git clone https://github.com/Growth-Circle/growcli.git
+cd growcli/codex-rs
+cargo run --bin grow -- --help
 ```
+
+Set your GrowthCircle API key:
 
 ```shell
-# Install using Homebrew
-brew install --cask codex
+export GC_API_KEY="your_growthcircle_api_key"
 ```
 
-Then simply run `codex` to get started.
+Start the interactive coding agent:
 
-<details>
-<summary>You can also go to the <a href="https://github.com/openai/codex/releases/latest">latest GitHub Release</a> and download the appropriate binary for your platform.</summary>
+```shell
+cargo run --bin grow --
+```
 
-Each GitHub Release contains many executables, but in practice, you likely want one of these:
+Use a specific model from the GrowthCircle AI dashboard:
 
-- macOS
-  - Apple Silicon/arm64: `codex-aarch64-apple-darwin.tar.gz`
-  - x86_64 (older Mac hardware): `codex-x86_64-apple-darwin.tar.gz`
-- Linux
-  - x86_64: `codex-x86_64-unknown-linux-musl.tar.gz`
-  - arm64: `codex-aarch64-unknown-linux-musl.tar.gz`
+```shell
+cargo run --bin grow -- -m MODEL_ID
+```
 
-Each archive contains a single entry with the platform baked into the name (e.g., `codex-x86_64-unknown-linux-musl`), so you likely want to rename it to `codex` after extracting it.
+Run a one-shot task:
 
-</details>
+```shell
+cargo run --bin grow -- exec -m MODEL_ID "explain this repository"
+```
 
-### Using Codex with your ChatGPT plan
+## GrowthCircle Provider
 
-Run `codex` and select **Sign in with ChatGPT**. We recommend signing into your ChatGPT account to use Codex as part of your Plus, Pro, Business, Edu, or Enterprise plan. [Learn more about what's included in your ChatGPT plan](https://help.openai.com/en/articles/11369540-codex-in-chatgpt).
+Grow CLI defaults to the built-in `growthcircle` provider:
 
-You can also use Codex with an API key, but this requires [additional setup](https://developers.openai.com/codex/auth#sign-in-with-an-api-key).
+```toml
+model_provider = "growthcircle"
+```
 
-## Docs
+Provider details:
 
-- [**Codex Documentation**](https://developers.openai.com/codex)
-- [**Contributing**](./docs/contributing.md)
-- [**Installing & building**](./docs/install.md)
-- [**Open source fund**](./docs/open-source-fund.md)
+- Base URL: `https://ai.growthcircle.id/v1`
+- Auth header: `Authorization: Bearer $GC_API_KEY`
+- Main endpoint used by the agent: `POST /v1/responses`
+- OpenAI-compatible chat endpoint for integrations: `POST /v1/chat/completions`
+- Image endpoint for image tools: `POST /v1/images/generations`
 
-This repository is licensed under the [Apache-2.0 License](LICENSE).
+All GrowthCircle models, including free and paid models available to your account, are selected by model ID with `-m MODEL_ID` or `model = "MODEL_ID"` in config.
+
+## Configuration
+
+Grow CLI uses the same config system as Codex. To pin a model:
+
+```toml
+model_provider = "growthcircle"
+model = "MODEL_ID"
+```
+
+Save this in `~/.codex/config.toml` for your user account, or pass overrides on the command line.
+
+## Upstream
+
+Grow CLI tracks upstream OpenAI Codex CLI where practical. The main fork-specific changes are the GrowthCircle provider defaults, `GC_API_KEY` authentication, and the `grow` binary alias.
+
+Helpful docs:
+
+- [GrowthCircle setup](./docs/growthcircle.md)
+- [Installing and building](./docs/install.md)
+- [Contributing](./docs/contributing.md)

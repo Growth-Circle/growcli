@@ -12,9 +12,14 @@ alias c := codex
 codex *args:
     cargo run --bin codex -- "$@"
 
-# `codex exec`
+# `grow`
+alias g := grow
+grow *args:
+    cargo run --bin grow -- "$@"
+
+# `grow exec`
 exec *args:
-    cargo run --bin codex -- exec "$@"
+    cargo run --bin grow -- exec "$@"
 
 # Start `codex exec-server` and run codex-tui.
 [no-cd]

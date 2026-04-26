@@ -269,6 +269,40 @@ fn test_create_amazon_bedrock_provider() {
 }
 
 #[test]
+fn test_create_growthcircle_provider() {
+    assert_eq!(
+        ModelProviderInfo::create_growthcircle_provider(),
+        ModelProviderInfo {
+            name: "GrowthCircle".to_string(),
+            base_url: Some("https://ai.growthcircle.id/v1".to_string()),
+            env_key: Some("GC_API_KEY".to_string()),
+            env_key_instructions: Some(
+                "Create or copy your GrowthCircle API key at https://growthcircle.id/app/ai, \
+then set it with `export GC_API_KEY=...`."
+                    .to_string()
+            ),
+            experimental_bearer_token: None,
+            auth: None,
+            aws: None,
+            wire_api: WireApi::Responses,
+            query_params: None,
+            http_headers: Some(
+                [("version".to_string(), env!("CARGO_PKG_VERSION").to_string())]
+                    .into_iter()
+                    .collect(),
+            ),
+            env_http_headers: None,
+            request_max_retries: None,
+            stream_max_retries: None,
+            stream_idle_timeout_ms: None,
+            websocket_connect_timeout_ms: None,
+            requires_openai_auth: false,
+            supports_websockets: false,
+        }
+    );
+}
+
+#[test]
 fn test_built_in_model_providers_include_amazon_bedrock() {
     let providers = built_in_model_providers(/*openai_base_url*/ None);
 
@@ -276,6 +310,18 @@ fn test_built_in_model_providers_include_amazon_bedrock() {
         providers
             .get(AMAZON_BEDROCK_PROVIDER_ID)
             .map(ModelProviderInfo::is_amazon_bedrock),
+        Some(true)
+    );
+}
+
+#[test]
+fn test_built_in_model_providers_include_growthcircle() {
+    let providers = built_in_model_providers(/*openai_base_url*/ None);
+
+    assert_eq!(
+        providers
+            .get(GROWTHCIRCLE_PROVIDER_ID)
+            .map(ModelProviderInfo::is_growthcircle),
         Some(true)
     );
 }

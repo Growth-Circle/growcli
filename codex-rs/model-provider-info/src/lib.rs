@@ -34,6 +34,10 @@ const MAX_REQUEST_MAX_RETRIES: u64 = 100;
 
 const OPENAI_PROVIDER_NAME: &str = "OpenAI";
 pub const OPENAI_PROVIDER_ID: &str = "openai";
+const GROWTHCIRCLE_PROVIDER_NAME: &str = "GrowthCircle";
+pub const GROWTHCIRCLE_PROVIDER_ID: &str = "growthcircle";
+pub const GROWTHCIRCLE_DEFAULT_BASE_URL: &str = "https://ai.growthcircle.id/v1";
+pub const GROWTHCIRCLE_API_KEY_ENV_VAR: &str = "GC_API_KEY";
 const AMAZON_BEDROCK_PROVIDER_NAME: &str = "Amazon Bedrock";
 pub const AMAZON_BEDROCK_PROVIDER_ID: &str = "amazon-bedrock";
 pub const AMAZON_BEDROCK_DEFAULT_BASE_URL: &str = "https://bedrock-mantle.us-east-1.api.aws/v1";
@@ -374,8 +378,42 @@ impl ModelProviderInfo {
         }
     }
 
+    pub fn create_growthcircle_provider() -> ModelProviderInfo {
+        ModelProviderInfo {
+            name: GROWTHCIRCLE_PROVIDER_NAME.into(),
+            base_url: Some(GROWTHCIRCLE_DEFAULT_BASE_URL.into()),
+            env_key: Some(GROWTHCIRCLE_API_KEY_ENV_VAR.into()),
+            env_key_instructions: Some(
+                "Create or copy your GrowthCircle API key at https://growthcircle.id/app/ai, \
+then set it with `export GC_API_KEY=...`."
+                    .into(),
+            ),
+            experimental_bearer_token: None,
+            auth: None,
+            aws: None,
+            wire_api: WireApi::Responses,
+            query_params: None,
+            http_headers: Some(
+                [("version".to_string(), env!("CARGO_PKG_VERSION").to_string())]
+                    .into_iter()
+                    .collect(),
+            ),
+            env_http_headers: None,
+            request_max_retries: None,
+            stream_max_retries: None,
+            stream_idle_timeout_ms: None,
+            websocket_connect_timeout_ms: None,
+            requires_openai_auth: false,
+            supports_websockets: false,
+        }
+    }
+
     pub fn is_openai(&self) -> bool {
         self.name == OPENAI_PROVIDER_NAME
+    }
+
+    pub fn is_growthcircle(&self) -> bool {
+        self.name == GROWTHCIRCLE_PROVIDER_NAME
     }
 
     pub fn is_amazon_bedrock(&self) -> bool {
@@ -403,14 +441,15 @@ pub fn built_in_model_providers(
 ) -> HashMap<String, ModelProviderInfo> {
     use ModelProviderInfo as P;
     let openai_provider = P::create_openai_provider(openai_base_url);
+    let growthcircle_provider = P::create_growthcircle_provider();
     let amazon_bedrock_provider = P::create_amazon_bedrock_provider(/*aws*/ None);
 
-    // We do not want to be in the business of adjucating which third-party
-    // providers are bundled with Codex CLI, so we only include the OpenAI and
-    // open source ("oss") providers by default. Users are encouraged to add to
-    // `model_providers` in config.toml to add their own providers.
+    // Keep the upstream OpenAI and local open source ("oss") providers, and add
+    // GrowthCircle as the default provider for this fork. Users can still add
+    // their own providers under `model_providers` in config.toml.
     [
         (OPENAI_PROVIDER_ID, openai_provider),
+        (GROWTHCIRCLE_PROVIDER_ID, growthcircle_provider),
         (AMAZON_BEDROCK_PROVIDER_ID, amazon_bedrock_provider),
         (
             OLLAMA_OSS_PROVIDER_ID,

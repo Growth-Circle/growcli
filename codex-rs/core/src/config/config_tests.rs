@@ -52,6 +52,9 @@ use codex_config::types::TuiNotificationSettings;
 use codex_exec_server::LOCAL_FS;
 use codex_features::Feature;
 use codex_features::FeaturesToml;
+use codex_model_provider_info::GROWTHCIRCLE_API_KEY_ENV_VAR;
+use codex_model_provider_info::GROWTHCIRCLE_DEFAULT_BASE_URL;
+use codex_model_provider_info::GROWTHCIRCLE_PROVIDER_ID;
 use codex_model_provider_info::LMSTUDIO_OSS_PROVIDER_ID;
 use codex_model_provider_info::OLLAMA_OSS_PROVIDER_ID;
 use codex_model_provider_info::WireApi;
@@ -458,6 +461,29 @@ region = "us-west-2"
             .and_then(|aws| aws.region.as_deref()),
         Some("us-west-2")
     );
+}
+
+#[tokio::test]
+async fn load_config_defaults_to_growthcircle_provider() {
+    let config = Config::load_from_base_config_with_overrides(
+        ConfigToml::default(),
+        ConfigOverrides::default(),
+        tempdir().expect("tempdir").abs(),
+    )
+    .await
+    .expect("load config");
+
+    assert_eq!(config.model_provider_id, GROWTHCIRCLE_PROVIDER_ID);
+    assert_eq!(config.model_provider.name, "GrowthCircle");
+    assert_eq!(
+        config.model_provider.base_url.as_deref(),
+        Some(GROWTHCIRCLE_DEFAULT_BASE_URL)
+    );
+    assert_eq!(
+        config.model_provider.env_key.as_deref(),
+        Some(GROWTHCIRCLE_API_KEY_ENV_VAR)
+    );
+    assert!(!config.model_provider.requires_openai_auth);
 }
 
 #[tokio::test]

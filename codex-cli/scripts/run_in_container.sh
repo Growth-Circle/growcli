@@ -11,7 +11,7 @@ set -e
 # Default the work directory to WORKSPACE_ROOT_DIR if not provided.
 WORK_DIR="${WORKSPACE_ROOT_DIR:-$(pwd)}"
 # Default allowed domains - can be overridden with OPENAI_ALLOWED_DOMAINS env var
-OPENAI_ALLOWED_DOMAINS="${OPENAI_ALLOWED_DOMAINS:-api.openai.com}"
+OPENAI_ALLOWED_DOMAINS="${OPENAI_ALLOWED_DOMAINS:-ai.growthcircle.id api.openai.com}"
 
 # Parse optional flag.
 if [ "$1" = "--work_dir" ]; then
@@ -58,6 +58,7 @@ cleanup
 
 # Run the container with the specified directory mounted at the same path inside the container.
 docker run --name "$CONTAINER_NAME" -d \
+  -e GC_API_KEY \
   -e OPENAI_API_KEY \
   --cap-add=NET_ADMIN \
   --cap-add=NET_RAW \
@@ -92,4 +93,4 @@ quoted_args=""
 for arg in "$@"; do
   quoted_args+=" $(printf '%q' "$arg")"
 done
-docker exec -it "$CONTAINER_NAME" bash -c "cd \"/app$WORK_DIR\" && codex --full-auto ${quoted_args}"
+docker exec -it "$CONTAINER_NAME" bash -c "cd \"/app$WORK_DIR\" && grow --full-auto ${quoted_args}"
