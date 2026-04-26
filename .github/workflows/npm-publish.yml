@@ -97,5 +97,5 @@ jobs:
             echo "NPM_TOKEN secret is required to publish @growthcircle/growcli"
             exit 1
           }
-          tarball="$(ls dist/growthcircle-growcli-*.tgz | head -n 1)"
+          tarball="$(realpath "$(ls dist/growthcircle-growcli-*.tgz | head -n 1)")"
           npm publish "$tarball" --access public --tag "$TAG"
