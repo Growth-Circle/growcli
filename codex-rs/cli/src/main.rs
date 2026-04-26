@@ -71,16 +71,16 @@ use codex_terminal_detection::TerminalName;
 /// If no subcommand is specified, options will be forwarded to the interactive CLI.
 #[derive(Debug, Parser)]
 #[clap(
-    name = "grow",
+    name = "growcli",
     author,
     version,
     // If a sub‑command is given, ignore requirements of the default args.
     subcommand_negates_reqs = true,
     // The executable is sometimes invoked via a platform-specific name like
-    // `grow-x86_64-unknown-linux-musl`, but the help output should always use
-    // the generic `grow` command name that users run.
-    bin_name = "grow",
-    override_usage = "grow [OPTIONS] [PROMPT]\n       grow [OPTIONS] <COMMAND> [ARGS]"
+    // `growcli-x86_64-unknown-linux-musl`, but the help output should always
+    // use the generic `growcli` command name that users run.
+    bin_name = "growcli",
+    override_usage = "growcli [OPTIONS] [PROMPT]\n       growcli [OPTIONS] <COMMAND> [ARGS]"
 )]
 struct MultitoolCli {
     #[clap(flatten)]
@@ -101,7 +101,7 @@ struct MultitoolCli {
 
 #[derive(Debug, clap::Subcommand)]
 enum Subcommand {
-    /// Run Codex non-interactively.
+    /// Run Grow CLI non-interactively.
     #[clap(visible_alias = "e")]
     Exec(ExecCli),
 
@@ -114,26 +114,26 @@ enum Subcommand {
     /// Remove stored authentication credentials.
     Logout(LogoutCommand),
 
-    /// Manage external MCP servers for Codex.
+    /// Manage external MCP servers for Grow CLI.
     Mcp(McpCli),
 
-    /// Manage Codex plugins.
+    /// Manage Grow CLI plugins.
     Plugin(PluginCli),
 
-    /// Start Codex as an MCP server (stdio).
+    /// Start Grow CLI as an MCP server (stdio).
     McpServer,
 
     /// [experimental] Run the app server or related tooling.
     AppServer(AppServerCommand),
 
-    /// Launch the Codex desktop app (opens the app installer if missing).
+    /// Launch the Grow CLI desktop app (opens the app installer if missing).
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     App(app_cmd::AppCommand),
 
     /// Generate shell completion scripts.
     Completion(CompletionCommand),
 
-    /// Run commands within a Codex-provided sandbox.
+    /// Run commands within a Grow CLI-provided sandbox.
     Sandbox(SandboxArgs),
 
     /// Debugging tools.
@@ -143,7 +143,7 @@ enum Subcommand {
     #[clap(hide = true)]
     Execpolicy(ExecpolicyCommand),
 
-    /// Apply the latest diff produced by Codex agent as a `git apply` to your local working tree.
+    /// Apply the latest diff produced by Grow CLI agent as a `git apply` to your local working tree.
     #[clap(visible_alias = "a")]
     Apply(ApplyCommand),
 
@@ -173,7 +173,7 @@ enum Subcommand {
 }
 
 #[derive(Debug, Parser)]
-#[command(bin_name = "codex plugin")]
+#[command(bin_name = "growcli plugin")]
 struct PluginCli {
     #[clap(flatten)]
     pub config_overrides: CliConfigOverrides,
@@ -356,7 +356,7 @@ struct LoginCommand {
 
     #[arg(
         long = "with-api-key",
-        help = "Read the API key from stdin (e.g. `printenv OPENAI_API_KEY | codex login --with-api-key`)"
+        help = "Read the API key from stdin (e.g. `printenv GC_API_KEY | growcli login --with-api-key`)"
     )]
     with_api_key: bool,
 
@@ -950,7 +950,7 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
                         .await;
                     } else if login_cli.api_key.is_some() {
                         eprintln!(
-                            "The --api-key flag is no longer supported. Pipe the key instead, e.g. `printenv OPENAI_API_KEY | codex login --with-api-key`."
+                            "The --api-key flag is no longer supported. Pipe the key instead, e.g. `printenv GC_API_KEY | growcli login --with-api-key`."
                         );
                         std::process::exit(1);
                     } else if login_cli.with_api_key {
@@ -1440,12 +1440,12 @@ fn reject_remote_mode_for_subcommand(
 ) -> anyhow::Result<()> {
     if let Some(remote) = remote {
         anyhow::bail!(
-            "`--remote {remote}` is only supported for interactive TUI commands, not `codex {subcommand}`"
+            "`--remote {remote}` is only supported for interactive TUI commands, not `growcli {subcommand}`"
         );
     }
     if remote_auth_token_env.is_some() {
         anyhow::bail!(
-            "`--remote-auth-token-env` is only supported for interactive TUI commands, not `codex {subcommand}`"
+            "`--remote-auth-token-env` is only supported for interactive TUI commands, not `growcli {subcommand}`"
         );
     }
     Ok(())
@@ -1551,7 +1551,7 @@ fn confirm(prompt: &str) -> std::io::Result<bool> {
     Ok(answer.eq_ignore_ascii_case("y") || answer.eq_ignore_ascii_case("yes"))
 }
 
-/// Build the final `TuiCli` for a `codex resume` invocation.
+/// Build the final `TuiCli` for a `growcli resume` invocation.
 fn finalize_resume_interactive(
     mut interactive: TuiCli,
     root_config_overrides: CliConfigOverrides,
@@ -1605,7 +1605,7 @@ fn finalize_fork_interactive(
     interactive
 }
 
-/// Merge flags provided to `codex resume`/`codex fork` so they take precedence over any
+/// Merge flags provided to `growcli resume`/`growcli fork` so they take precedence over any
 /// root-level flags. Only overrides fields explicitly set on the subcommand-scoped
 /// CLI. Also appends `-c key=value` overrides with highest precedence.
 fn merge_interactive_cli_flags(interactive: &mut TuiCli, subcommand_cli: TuiCli) {
@@ -1842,14 +1842,14 @@ mod tests {
     fn plugin_marketplace_help_uses_plugin_namespace() {
         let help = help_from_args(&["codex", "plugin", "marketplace", "--help"]);
         assert!(
-            help.contains("Usage: codex plugin marketplace [OPTIONS] <COMMAND>"),
+            help.contains("Usage: growcli plugin marketplace [OPTIONS] <COMMAND>"),
             "{help}"
         );
 
         for (subcommand, usage) in [
-            ("add", "Usage: codex plugin marketplace add"),
-            ("upgrade", "Usage: codex plugin marketplace upgrade"),
-            ("remove", "Usage: codex plugin marketplace remove"),
+            ("add", "Usage: growcli plugin marketplace add"),
+            ("upgrade", "Usage: growcli plugin marketplace upgrade"),
+            ("remove", "Usage: growcli plugin marketplace remove"),
         ] {
             let help = help_from_args(&["codex", "plugin", "marketplace", subcommand, "--help"]);
             assert!(help.contains(usage), "{help}");
@@ -1939,7 +1939,7 @@ mod tests {
             lines,
             vec![
                 "Token usage: total=2 input=0 output=2".to_string(),
-                "To continue this session, run codex resume 123e4567-e89b-12d3-a456-426614174000"
+                "To continue this session, run growcli resume 123e4567-e89b-12d3-a456-426614174000"
                     .to_string(),
             ]
         );
@@ -1967,7 +1967,7 @@ mod tests {
             lines,
             vec![
                 "Token usage: total=2 input=0 output=2".to_string(),
-                "To continue this session, run codex resume 123e4567-e89b-12d3-a456-426614174000"
+                "To continue this session, run growcli resume 123e4567-e89b-12d3-a456-426614174000"
                     .to_string(),
             ]
         );

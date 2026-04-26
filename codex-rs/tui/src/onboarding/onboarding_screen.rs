@@ -31,6 +31,8 @@ use crate::onboarding::welcome::WelcomeWidget;
 use crate::tui::FrameRequester;
 use crate::tui::Tui;
 use crate::tui::TuiEvent;
+use codex_login::OPENAI_API_KEY_ENV_VAR;
+use codex_model_provider_info::GROWTHCIRCLE_API_KEY_ENV_VAR;
 use color_eyre::eyre::Result;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -89,7 +91,12 @@ impl OnboardingScreen {
         } = args;
         let cwd = config.cwd.to_path_buf();
         let codex_home = config.codex_home.to_path_buf();
-        let forced_login_method = config.forced_login_method;
+        let is_growthcircle_provider = config.model_provider.is_growthcircle();
+        let forced_login_method = if is_growthcircle_provider {
+            Some(ForcedLoginMethod::Api)
+        } else {
+            config.forced_login_method
+        };
         let mut steps: Vec<Step> = Vec::new();
         steps.push(Step::Welcome(WelcomeWidget::new(
             !matches!(login_status, LoginStatus::NotAuthenticated),
@@ -101,15 +108,34 @@ impl OnboardingScreen {
                 Some(ForcedLoginMethod::Api) => SignInOption::ApiKey,
                 _ => SignInOption::ChatGpt,
             };
+            let initial_sign_in_state = if is_growthcircle_provider {
+                SignInState::ApiKeyEntry(Default::default())
+            } else {
+                SignInState::PickMode
+            };
             if let Some(app_server_request_handle) = app_server_request_handle {
                 steps.push(Step::Auth(AuthModeWidget {
                     request_frame: tui.frame_requester(),
                     highlighted_mode,
                     error: Arc::new(RwLock::new(None)),
-                    sign_in_state: Arc::new(RwLock::new(SignInState::PickMode)),
+                    sign_in_state: Arc::new(RwLock::new(initial_sign_in_state)),
                     login_status,
                     app_server_request_handle,
                     forced_login_method,
+                    api_key_only: is_growthcircle_provider,
+                    api_key_env_var: if is_growthcircle_provider {
+                        GROWTHCIRCLE_API_KEY_ENV_VAR.to_string()
+                    } else {
+                        OPENAI_API_KEY_ENV_VAR.to_string()
+                    },
+                    api_key_provider_name: if is_growthcircle_provider {
+                        "GrowthCircle".to_string()
+                    } else {
+                        "OpenAI".to_string()
+                    },
+                    api_key_validation_base_url: is_growthcircle_provider
+                        .then(|| config.model_provider.base_url.clone())
+                        .flatten(),
                     animations_enabled: config.animations,
                     animations_suppressed: std::cell::Cell::new(false),
                 }));

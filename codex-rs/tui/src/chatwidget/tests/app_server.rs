@@ -786,7 +786,7 @@ async fn live_app_server_thread_name_update_shows_resume_hint() {
     assert_eq!(cells.len(), 1);
     let rendered = lines_to_single_string(&cells[0]);
     assert!(rendered.contains("Thread renamed to review-fix"));
-    assert!(rendered.contains("codex resume review-fix"));
+    assert!(rendered.contains("growcli resume review-fix"));
 }
 
 #[tokio::test]

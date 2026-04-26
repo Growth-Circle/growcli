@@ -75,21 +75,35 @@ if (!platformPackage) {
   throw new Error(`Unsupported target triple: ${targetTriple}`);
 }
 
-const codexBinaryName = process.platform === "win32" ? "codex.exe" : "codex";
+const nativeBinaryNames =
+  process.platform === "win32"
+    ? ["growcli.exe", "grow.exe", "codex.exe"]
+    : ["growcli", "grow", "codex"];
 const localVendorRoot = path.join(__dirname, "..", "vendor");
-const localBinaryPath = path.join(
-  localVendorRoot,
-  targetTriple,
-  "codex",
-  codexBinaryName,
-);
+
+function findNativeBinary(vendorRoot) {
+  const archRoot = path.join(vendorRoot, targetTriple);
+  for (const nativeBinaryName of nativeBinaryNames) {
+    const candidate = path.join(archRoot, "codex", nativeBinaryName);
+    if (existsSync(candidate)) {
+      return { archRoot, binaryPath: candidate };
+    }
+  }
+
+  return {
+    archRoot,
+    binaryPath: path.join(archRoot, "codex", nativeBinaryNames[0]),
+  };
+}
+
+const localBinary = findNativeBinary(localVendorRoot);
 
 let vendorRoot;
 try {
   const packageJsonPath = require.resolve(`${platformPackage}/package.json`);
   vendorRoot = path.join(path.dirname(packageJsonPath), "vendor");
 } catch {
-  if (existsSync(localBinaryPath)) {
+  if (existsSync(localBinary.binaryPath)) {
     vendorRoot = localVendorRoot;
   } else {
     const packageManager = detectPackageManager();
@@ -114,8 +128,15 @@ if (!vendorRoot) {
   );
 }
 
-const archRoot = path.join(vendorRoot, targetTriple);
-const binaryPath = path.join(archRoot, "codex", codexBinaryName);
+const { archRoot, binaryPath } = findNativeBinary(vendorRoot);
+if (!existsSync(binaryPath)) {
+  const packageManager = detectPackageManager();
+  const updateCommand =
+    packageManager === "bun"
+      ? "bun install -g @growthcircle/growcli@latest"
+      : "npm install -g @growthcircle/growcli@latest";
+  throw new Error(`Missing Grow CLI native binary. Reinstall: ${updateCommand}`);
+}
 
 // Use an asynchronous spawn instead of spawnSync so that Node is able to
 // respond to signals (e.g. Ctrl-C / SIGINT) while the native binary is

@@ -85,8 +85,27 @@ pub(crate) fn resolve_provider_auth(
     auth: Option<&CodexAuth>,
     provider: &ModelProviderInfo,
 ) -> codex_protocol::error::Result<SharedAuthProvider> {
-    if let Some(auth) = bearer_auth_for_provider(provider)? {
-        return Ok(Arc::new(auth));
+    let provider_api_key_error = match bearer_auth_for_provider(provider) {
+        Ok(Some(auth)) => return Ok(Arc::new(auth)),
+        Ok(None) => None,
+        Err(err) => {
+            let has_stored_growthcircle_api_key =
+                provider.is_growthcircle() && auth.is_some_and(CodexAuth::is_api_key_auth);
+            if !has_stored_growthcircle_api_key {
+                return Err(err);
+            }
+            Some(err)
+        }
+    };
+
+    if provider.is_growthcircle() {
+        return match auth {
+            Some(auth @ CodexAuth::ApiKey(_)) => Ok(auth_provider_from_auth(auth)),
+            _ => match provider_api_key_error {
+                Some(err) => Err(err),
+                None => Ok(unauthenticated_auth_provider()),
+            },
+        };
     }
 
     Ok(match auth {
@@ -127,6 +146,7 @@ pub fn auth_provider_from_auth(auth: &CodexAuth) -> SharedAuthProvider {
 
 #[cfg(test)]
 mod tests {
+    use codex_model_provider_info::ModelProviderInfo;
     use codex_model_provider_info::WireApi;
     use codex_model_provider_info::create_oss_provider_with_base_url;
 
@@ -139,5 +159,39 @@ mod tests {
         let auth = resolve_provider_auth(/*auth*/ None, &provider).expect("auth should resolve");
 
         assert!(auth.to_auth_headers().is_empty());
+    }
+
+    #[test]
+    fn growthcircle_auth_uses_stored_api_key_when_env_key_is_missing() {
+        let mut provider = ModelProviderInfo::create_growthcircle_provider();
+        provider.env_key = Some("__GROWCLI_TEST_MISSING_GC_API_KEY".to_string());
+        let stored_auth = CodexAuth::from_api_key("gc-api-key");
+
+        let auth =
+            resolve_provider_auth(Some(&stored_auth), &provider).expect("auth should resolve");
+
+        assert_eq!(
+            auth.to_auth_headers()
+                .get(http::header::AUTHORIZATION)
+                .and_then(|value| value.to_str().ok()),
+            Some("Bearer gc-api-key")
+        );
+    }
+
+    #[test]
+    fn growthcircle_auth_rejects_stored_chatgpt_when_env_key_is_missing() {
+        let mut provider = ModelProviderInfo::create_growthcircle_provider();
+        provider.env_key = Some("__GROWCLI_TEST_MISSING_GC_API_KEY".to_string());
+        let stored_auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
+
+        let err = match resolve_provider_auth(Some(&stored_auth), &provider) {
+            Ok(_) => panic!("chatgpt auth should not be valid for GrowthCircle"),
+            Err(err) => err,
+        };
+
+        assert!(
+            err.to_string()
+                .contains("__GROWCLI_TEST_MISSING_GC_API_KEY")
+        );
     }
 }

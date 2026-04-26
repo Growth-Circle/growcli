@@ -1,8 +1,9 @@
 # Configuration
 
 Grow CLI defaults to the built-in `growthcircle` provider. Set `GC_API_KEY`
-from https://growthcircle.id/app/ai, then choose any model available to your
-GrowthCircle account with `-m MODEL_ID` or `model = "MODEL_ID"`.
+from https://growthcircle.id/app/ai, or paste the key during first-run setup.
+After the key is validated, choose any model available to your GrowthCircle
+account with `-m MODEL_ID` or `model = "MODEL_ID"`.
 
 See [GrowthCircle provider setup](./growthcircle.md) for endpoint and auth
 details.

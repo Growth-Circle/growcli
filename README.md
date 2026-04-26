@@ -6,12 +6,23 @@ This repository is open source under Apache-2.0. Upstream attribution and notice
 
 ## Quickstart
 
+After the package is published, users install once and run:
+
+```shell
+npm install -g @growthcircle/growcli
+growcli
+```
+
+If `GC_API_KEY` is not set yet, Grow CLI asks for the GrowthCircle API key on
+startup, validates it, saves it locally, and loads the free or paid models
+available to that key.
+
 Build and run from source:
 
 ```shell
 git clone https://github.com/Growth-Circle/growcli.git
 cd growcli/codex-rs
-cargo run --bin grow -- --help
+cargo run --bin growcli -- --help
 ```
 
 Set your GrowthCircle API key:
@@ -20,22 +31,25 @@ Set your GrowthCircle API key:
 export GC_API_KEY="your_growthcircle_api_key"
 ```
 
+This step is optional for interactive users because `growcli` can prompt for
+the key on first run.
+
 Start the interactive coding agent:
 
 ```shell
-cargo run --bin grow --
+cargo run --bin growcli --
 ```
 
 Use a specific model from the GrowthCircle AI dashboard:
 
 ```shell
-cargo run --bin grow -- -m MODEL_ID
+cargo run --bin growcli -- -m MODEL_ID
 ```
 
 Run a one-shot task:
 
 ```shell
-cargo run --bin grow -- exec -m MODEL_ID "explain this repository"
+cargo run --bin growcli -- exec -m MODEL_ID "explain this repository"
 ```
 
 ## GrowthCircle Provider
@@ -49,7 +63,8 @@ model_provider = "growthcircle"
 Provider details:
 
 - Base URL: `https://ai.growthcircle.id/v1`
-- Auth header: `Authorization: Bearer $GC_API_KEY`
+- Auth header: `Authorization: Bearer $GC_API_KEY` or the API key saved during
+  first-run setup
 - Main endpoint used by the agent: `POST /v1/responses`
 - OpenAI-compatible chat endpoint for integrations: `POST /v1/chat/completions`
 - Image endpoint for image tools: `POST /v1/images/generations`
@@ -69,7 +84,7 @@ Save this in `~/.codex/config.toml` for your user account, or pass overrides on 
 
 ## Upstream
 
-Grow CLI tracks upstream OpenAI Codex CLI where practical. The main fork-specific changes are the GrowthCircle provider defaults, `GC_API_KEY` authentication, and the `grow` binary alias.
+Grow CLI tracks upstream OpenAI Codex CLI where practical. The main fork-specific changes are the GrowthCircle provider defaults, `GC_API_KEY` authentication, and the `growcli` command and `grow` shortcut.
 
 Helpful docs:
 

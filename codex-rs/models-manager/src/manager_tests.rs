@@ -76,6 +76,7 @@ fn assert_models_contain(actual: &[ModelInfo], expected: &[ModelInfo]) {
 #[derive(Debug)]
 struct TestModelsEndpoint {
     has_command_auth: bool,
+    has_provider_api_key_auth: bool,
     uses_codex_backend: bool,
     responses: Mutex<VecDeque<Vec<ModelInfo>>>,
     fetch_count: AtomicUsize,
@@ -85,6 +86,7 @@ impl TestModelsEndpoint {
     fn new(responses: Vec<Vec<ModelInfo>>) -> Arc<Self> {
         Arc::new(Self {
             has_command_auth: false,
+            has_provider_api_key_auth: false,
             uses_codex_backend: true,
             responses: Mutex::new(responses.into()),
             fetch_count: AtomicUsize::new(0),
@@ -94,6 +96,17 @@ impl TestModelsEndpoint {
     fn without_refresh(responses: Vec<Vec<ModelInfo>>) -> Arc<Self> {
         Arc::new(Self {
             has_command_auth: false,
+            has_provider_api_key_auth: false,
+            uses_codex_backend: false,
+            responses: Mutex::new(responses.into()),
+            fetch_count: AtomicUsize::new(0),
+        })
+    }
+
+    fn with_provider_api_key_auth(responses: Vec<Vec<ModelInfo>>) -> Arc<Self> {
+        Arc::new(Self {
+            has_command_auth: false,
+            has_provider_api_key_auth: true,
             uses_codex_backend: false,
             responses: Mutex::new(responses.into()),
             fetch_count: AtomicUsize::new(0),
@@ -151,6 +164,10 @@ impl ExternalAuth for TestUnresolvedExternalApiKeyAuth {
 impl ModelsEndpointClient for TestModelsEndpoint {
     fn has_command_auth(&self) -> bool {
         self.has_command_auth
+    }
+
+    async fn has_provider_api_key_auth(&self) -> bool {
+        self.has_provider_api_key_auth
     }
 
     async fn uses_codex_backend(&self) -> bool {
@@ -542,6 +559,40 @@ async fn refresh_available_models_skips_network_without_chatgpt_auth() {
     );
 }
 
+#[tokio::test]
+async fn refresh_available_models_fetches_with_provider_api_key_auth() {
+    let dynamic_slug = "dynamic-model-only-for-test-provider-api-key";
+    let codex_home = tempdir().expect("temp dir");
+    let endpoint = TestModelsEndpoint::with_provider_api_key_auth(vec![vec![remote_model(
+        dynamic_slug,
+        "Provider API Key",
+        /*priority*/ 1,
+    )]]);
+    let manager = openai_manager_for_tests_with_auth(
+        codex_home.path().to_path_buf(),
+        endpoint.clone(),
+        /*auth_manager*/ None,
+    );
+
+    manager
+        .refresh_available_models(RefreshStrategy::Online)
+        .await
+        .expect("refresh should fetch with provider API key auth");
+    let cached_remote = manager.get_remote_models().await;
+
+    assert!(
+        cached_remote
+            .iter()
+            .any(|candidate| candidate.slug == dynamic_slug),
+        "remote model should be cached when provider API key auth is active"
+    );
+    assert_eq!(
+        endpoint.fetch_count(),
+        1,
+        "endpoint should fetch models when provider API key auth is active"
+    );
+}
+
 #[derive(Debug)]
 struct TestAuthAwareModelsEndpoint {
     auth_manager: Option<Arc<AuthManager>>,
@@ -566,6 +617,10 @@ impl TestAuthAwareModelsEndpoint {
 #[async_trait]
 impl ModelsEndpointClient for TestAuthAwareModelsEndpoint {
     fn has_command_auth(&self) -> bool {
+        false
+    }
+
+    async fn has_provider_api_key_auth(&self) -> bool {
         false
     }
 

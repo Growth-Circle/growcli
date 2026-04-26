@@ -71,6 +71,19 @@ impl ModelsEndpointClient for OpenAiModelsEndpoint {
         self.provider_info.has_command_auth()
     }
 
+    async fn has_provider_api_key_auth(&self) -> bool {
+        if !self.provider_info.is_growthcircle() {
+            return false;
+        }
+        if self.provider_info.api_key().ok().flatten().is_some() {
+            return true;
+        }
+        self.auth()
+            .await
+            .as_ref()
+            .is_some_and(CodexAuth::is_api_key_auth)
+    }
+
     async fn uses_codex_backend(&self) -> bool {
         self.auth()
             .await

@@ -145,27 +145,46 @@ impl ModelProvider for ConfiguredModelProvider {
     }
 
     fn account_state(&self) -> ProviderAccountResult {
+        let provider_env_api_key_present = self.info.api_key().ok().flatten().is_some();
         let account = if self.info.requires_openai_auth {
-            self.auth_manager
-                .as_ref()
-                .and_then(|auth_manager| auth_manager.auth_cached())
-                .map(|auth| match &auth {
-                    CodexAuth::ApiKey(_) => Ok(ProviderAccount::ApiKey),
-                    CodexAuth::Chatgpt(_)
-                    | CodexAuth::ChatgptAuthTokens(_)
-                    | CodexAuth::AgentIdentity(_) => {
-                        let email = auth.get_account_email();
-                        let plan_type = auth.account_plan_type();
+            if self.info.is_growthcircle() {
+                if provider_env_api_key_present {
+                    Some(ProviderAccount::ApiKey)
+                } else {
+                    self.auth_manager
+                        .as_ref()
+                        .and_then(|auth_manager| auth_manager.auth_cached())
+                        .and_then(|auth| match auth {
+                            CodexAuth::ApiKey(_) => Some(ProviderAccount::ApiKey),
+                            CodexAuth::Chatgpt(_)
+                            | CodexAuth::ChatgptAuthTokens(_)
+                            | CodexAuth::AgentIdentity(_) => None,
+                        })
+                }
+            } else if provider_env_api_key_present {
+                Some(ProviderAccount::ApiKey)
+            } else {
+                self.auth_manager
+                    .as_ref()
+                    .and_then(|auth_manager| auth_manager.auth_cached())
+                    .map(|auth| match &auth {
+                        CodexAuth::ApiKey(_) => Ok(ProviderAccount::ApiKey),
+                        CodexAuth::Chatgpt(_)
+                        | CodexAuth::ChatgptAuthTokens(_)
+                        | CodexAuth::AgentIdentity(_) => {
+                            let email = auth.get_account_email();
+                            let plan_type = auth.account_plan_type();
 
-                        match (email, plan_type) {
-                            (Some(email), Some(plan_type)) => {
-                                Ok(ProviderAccount::Chatgpt { email, plan_type })
+                            match (email, plan_type) {
+                                (Some(email), Some(plan_type)) => {
+                                    Ok(ProviderAccount::Chatgpt { email, plan_type })
+                                }
+                                _ => Err(ProviderAccountError::MissingChatgptAccountDetails),
                             }
-                            _ => Err(ProviderAccountError::MissingChatgptAccountDetails),
                         }
-                    }
-                })
-                .transpose()?
+                    })
+                    .transpose()?
+            }
         } else {
             None
         };
@@ -346,6 +365,46 @@ mod tests {
             ModelProviderInfo::create_openai_provider(/*base_url*/ None),
             Some(AuthManager::from_auth_for_testing(CodexAuth::from_api_key(
                 "openai-api-key",
+            ))),
+        );
+
+        assert_eq!(
+            provider.account_state(),
+            Ok(ProviderAccountState {
+                account: Some(ProviderAccount::ApiKey),
+                requires_openai_auth: true,
+            })
+        );
+    }
+
+    #[test]
+    fn growthcircle_provider_ignores_stored_chatgpt_account_state() {
+        let mut provider_info = ModelProviderInfo::create_growthcircle_provider();
+        provider_info.env_key = Some("__GROWCLI_TEST_MISSING_GC_API_KEY".to_string());
+        let provider = create_model_provider(
+            provider_info,
+            Some(AuthManager::from_auth_for_testing(
+                CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+            )),
+        );
+
+        assert_eq!(
+            provider.account_state(),
+            Ok(ProviderAccountState {
+                account: None,
+                requires_openai_auth: true,
+            })
+        );
+    }
+
+    #[test]
+    fn growthcircle_provider_accepts_stored_api_key_account_state() {
+        let mut provider_info = ModelProviderInfo::create_growthcircle_provider();
+        provider_info.env_key = Some("__GROWCLI_TEST_MISSING_GC_API_KEY".to_string());
+        let provider = create_model_provider(
+            provider_info,
+            Some(AuthManager::from_auth_for_testing(CodexAuth::from_api_key(
+                "gc-api-key",
             ))),
         );
 

@@ -16,11 +16,18 @@ Then export it before running Grow CLI:
 export GC_API_KEY="your_growthcircle_api_key"
 ```
 
+If `GC_API_KEY` is not set, run `growcli` and paste the key when prompted. Grow
+CLI validates the key against GrowthCircle, saves it locally, and loads the
+models available to that key, including free and paid models.
+
 Grow CLI sends it as:
 
 ```http
 Authorization: Bearer GC_API_KEY
 ```
+
+When the key is entered in first-run setup, Grow CLI stores it locally and uses
+the same bearer auth header.
 
 ## Default Provider
 
@@ -38,7 +45,7 @@ name = "GrowthCircle"
 base_url = "https://ai.growthcircle.id/v1"
 env_key = "GC_API_KEY"
 wire_api = "responses"
-requires_openai_auth = false
+requires_openai_auth = true
 ```
 
 `growthcircle` is a reserved built-in provider ID. If you need a staging or custom GrowthCircle endpoint, create a new provider ID:
@@ -51,7 +58,7 @@ name = "GrowthCircle Staging"
 base_url = "https://ai.growthcircle.id/v1"
 env_key = "GC_API_KEY"
 wire_api = "responses"
-requires_openai_auth = false
+requires_openai_auth = true
 ```
 
 ## Model Selection
@@ -59,8 +66,8 @@ requires_openai_auth = false
 Use any model ID available to your GrowthCircle account:
 
 ```shell
-grow -m MODEL_ID
-grow exec -m MODEL_ID "summarize this codebase"
+growcli -m MODEL_ID
+growcli exec -m MODEL_ID "summarize this codebase"
 ```
 
 Or pin it in `~/.codex/config.toml`:
@@ -79,4 +86,3 @@ GrowthCircle exposes these endpoints with the same `GC_API_KEY`:
 - `POST /v1/images/generations` for image generation.
 
 Grow CLI currently uses the Responses API path for the coding agent.
-

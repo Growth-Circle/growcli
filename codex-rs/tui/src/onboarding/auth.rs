@@ -8,7 +8,6 @@ use codex_app_server_protocol::CancelLoginAccountParams;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::LoginAccountParams;
 use codex_app_server_protocol::LoginAccountResponse;
-use codex_login::read_openai_api_key_from_env;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use crossterm::event::KeyEventKind;
@@ -90,7 +89,7 @@ pub(crate) enum SignInState {
     ChatGptSuccessMessage,
     ChatGptSuccess,
     ApiKeyEntry(ApiKeyInputState),
-    ApiKeyConfigured,
+    ApiKeyConfigured(ApiKeyConfiguredState),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -123,6 +122,12 @@ pub(super) async fn cancel_login_attempt(
 pub(crate) struct ApiKeyInputState {
     value: String,
     prepopulated_from_env: bool,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct ApiKeyConfiguredState {
+    model_count: usize,
+    model_names: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -236,6 +241,10 @@ pub(crate) struct AuthModeWidget {
     pub login_status: LoginStatus,
     pub app_server_request_handle: AppServerRequestHandle,
     pub forced_login_method: Option<ForcedLoginMethod>,
+    pub api_key_only: bool,
+    pub api_key_env_var: String,
+    pub api_key_provider_name: String,
+    pub api_key_validation_base_url: Option<String>,
     pub animations_enabled: bool,
     pub animations_suppressed: Cell<bool>,
 }
@@ -295,8 +304,17 @@ impl AuthModeWidget {
     }
 
     fn displayed_sign_in_options(&self) -> Vec<SignInOption> {
-        let mut options = vec![SignInOption::ChatGpt];
+        if self.api_key_only {
+            return self
+                .is_api_login_allowed()
+                .then_some(SignInOption::ApiKey)
+                .into_iter()
+                .collect();
+        }
+
+        let mut options = Vec::new();
         if self.is_chatgpt_login_allowed() {
+            options.push(SignInOption::ChatGpt);
             options.push(SignInOption::DeviceCode);
         }
         if self.is_api_login_allowed() {
@@ -306,6 +324,14 @@ impl AuthModeWidget {
     }
 
     fn selectable_sign_in_options(&self) -> Vec<SignInOption> {
+        if self.api_key_only {
+            return self
+                .is_api_login_allowed()
+                .then_some(SignInOption::ApiKey)
+                .into_iter()
+                .collect();
+        }
+
         let mut options = Vec::new();
         if self.is_chatgpt_login_allowed() {
             options.push(SignInOption::ChatGpt);
@@ -369,17 +395,35 @@ impl AuthModeWidget {
     }
 
     fn render_pick_mode(&self, area: Rect, buf: &mut Buffer) {
-        let mut lines: Vec<Line> = vec![
-            Line::from(vec![
-                "  ".into(),
-                "Sign in with ChatGPT to use Codex as part of your paid plan".into(),
-            ]),
-            Line::from(vec![
-                "  ".into(),
-                "or connect an API key for usage-based billing".into(),
-            ]),
-            "".into(),
-        ];
+        let mut lines: Vec<Line> = if self.api_key_only {
+            vec![
+                Line::from(vec![
+                    "  ".into(),
+                    format!(
+                        "Connect your {} API key to load your available models",
+                        self.api_key_provider_name
+                    )
+                    .into(),
+                ]),
+                Line::from(vec![
+                    "  ".into(),
+                    "Free and paid models are shown based on the key you use.".into(),
+                ]),
+                "".into(),
+            ]
+        } else {
+            vec![
+                Line::from(vec![
+                    "  ".into(),
+                    "Sign in with ChatGPT to use Grow CLI as part of your paid plan".into(),
+                ]),
+                Line::from(vec![
+                    "  ".into(),
+                    "or connect an API key for usage-based billing".into(),
+                ]),
+                "".into(),
+            ]
+        };
 
         let create_mode_item = |idx: usize,
                                 selected_mode: SignInOption,
@@ -439,8 +483,8 @@ impl AuthModeWidget {
                     lines.extend(create_mode_item(
                         idx,
                         option,
-                        "Provide your own API key",
-                        "Pay for what you use",
+                        &format!("Paste {} API key", self.api_key_provider_name),
+                        "Loads models available to this key",
                     ));
                 }
             }
@@ -560,11 +604,43 @@ impl AuthModeWidget {
     }
 
     fn render_api_key_configured(&self, area: Rect, buf: &mut Buffer) {
-        let lines = vec![
-            "✓ API key configured".fg(Color::Green).into(),
+        let sign_in_state = self.sign_in_state.read().unwrap();
+        let configured = match &*sign_in_state {
+            SignInState::ApiKeyConfigured(state) => Some(state.clone()),
+            _ => None,
+        };
+        drop(sign_in_state);
+
+        let mut lines: Vec<Line> = vec![
+            format!("✓ {} API key configured", self.api_key_provider_name)
+                .fg(Color::Green)
+                .into(),
             "".into(),
-            "  Codex will use usage-based billing with your API key.".into(),
         ];
+        if let Some(configured) = configured {
+            lines.push(
+                format!(
+                    "  Loaded {} {} models for this key.",
+                    configured.model_count, self.api_key_provider_name
+                )
+                .into(),
+            );
+            if !configured.model_names.is_empty() {
+                lines.push(
+                    format!("  Models: {}", configured.model_names.join(", "))
+                        .dim()
+                        .into(),
+                );
+            }
+        } else {
+            lines.push(
+                format!(
+                    "  Grow CLI will use {} with your API key.",
+                    self.api_key_provider_name
+                )
+                .into(),
+            );
+        }
 
         Paragraph::new(lines)
             .wrap(Wrap { trim: false })
@@ -582,14 +658,16 @@ impl AuthModeWidget {
         let mut intro_lines: Vec<Line> = vec![
             Line::from(vec![
                 "> ".into(),
-                "Use your own OpenAI API key for usage-based billing".bold(),
+                format!("Use your {} API key", self.api_key_provider_name).bold(),
             ]),
             "".into(),
             "  Paste or type your API key below. It will be stored locally in auth.json.".into(),
+            "  Grow CLI validates the key and loads the models available to it.".into(),
             "".into(),
         ];
         if state.prepopulated_from_env {
-            intro_lines.push("  Detected OPENAI_API_KEY environment variable.".into());
+            intro_lines
+                .push(format!("  Detected {} environment variable.", self.api_key_env_var).into());
             intro_lines.push(
                 "  Paste a different key if you prefer to use another account."
                     .dim()
@@ -602,7 +680,7 @@ impl AuthModeWidget {
             .render(intro_area, buf);
 
         let content_line: Line = if state.value.is_empty() {
-            vec!["Paste or type your API key".dim()].into()
+            vec![format!("Paste or type your {} API key", self.api_key_provider_name).dim()].into()
         } else {
             Line::from(state.value.clone())
         };
@@ -610,7 +688,7 @@ impl AuthModeWidget {
             .wrap(Wrap { trim: false })
             .block(
                 Block::default()
-                    .title("API key")
+                    .title(format!("{} API key", self.api_key_provider_name))
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
                     .border_style(Style::default().fg(Color::Cyan)),
@@ -722,7 +800,7 @@ impl AuthModeWidget {
             return;
         }
         self.set_error(/*message*/ None);
-        let prefill_from_env = read_openai_api_key_from_env();
+        let prefill_from_env = read_api_key_from_env(&self.api_key_env_var);
         let mut guard = self.sign_in_state.write().unwrap();
         match &mut *guard {
             SignInState::ApiKeyEntry(state) => {
@@ -756,7 +834,27 @@ impl AuthModeWidget {
         let sign_in_state = self.sign_in_state.clone();
         let error = self.error.clone();
         let request_frame = self.request_frame.clone();
+        let validation_base_url = self.api_key_validation_base_url.clone();
         tokio::spawn(async move {
+            let configured_state = match validation_base_url {
+                Some(base_url) => {
+                    match validate_api_key_with_models_endpoint(&base_url, &api_key).await {
+                        Ok(state) => state,
+                        Err(err) => {
+                            *error.write().unwrap() = Some(err);
+                            *sign_in_state.write().unwrap() =
+                                SignInState::ApiKeyEntry(ApiKeyInputState {
+                                    value: api_key,
+                                    prepopulated_from_env: false,
+                                });
+                            request_frame.schedule_frame();
+                            return;
+                        }
+                    }
+                }
+                None => ApiKeyConfiguredState::default(),
+            };
+
             match request_handle
                 .request_typed::<LoginAccountResponse>(ClientRequest::LoginAccount {
                     request_id: onboarding_request_id(),
@@ -768,7 +866,8 @@ impl AuthModeWidget {
             {
                 Ok(LoginAccountResponse::ApiKey {}) => {
                     *error.write().unwrap() = None;
-                    *sign_in_state.write().unwrap() = SignInState::ApiKeyConfigured;
+                    *sign_in_state.write().unwrap() =
+                        SignInState::ApiKeyConfigured(configured_state);
                 }
                 Ok(other) => {
                     *error.write().unwrap() = Some(format!(
@@ -907,7 +1006,7 @@ impl StepStateProvider for AuthModeWidget {
             | SignInState::ChatGptContinueInBrowser(_)
             | SignInState::ChatGptDeviceCode(_)
             | SignInState::ChatGptSuccessMessage => StepState::InProgress,
-            SignInState::ChatGptSuccess | SignInState::ApiKeyConfigured => StepState::Complete,
+            SignInState::ChatGptSuccess | SignInState::ApiKeyConfigured(_) => StepState::Complete,
         }
     }
 }
@@ -934,7 +1033,7 @@ impl WidgetRef for AuthModeWidget {
             SignInState::ApiKeyEntry(state) => {
                 self.render_api_key_entry(area, buf, state);
             }
-            SignInState::ApiKeyConfigured => {
+            SignInState::ApiKeyConfigured(_) => {
                 self.render_api_key_configured(area, buf);
             }
         }
@@ -949,6 +1048,77 @@ pub(super) fn maybe_open_auth_url_in_browser(request_handle: &AppServerRequestHa
     if let Err(err) = webbrowser::open(url) {
         tracing::warn!("failed to open browser for login URL: {err}");
     }
+}
+
+fn read_api_key_from_env(env_var: &str) -> Option<String> {
+    std::env::var(env_var)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+async fn validate_api_key_with_models_endpoint(
+    base_url: &str,
+    api_key: &str,
+) -> Result<ApiKeyConfiguredState, String> {
+    let url = format!("{}/models", base_url.trim_end_matches('/'));
+    let response = reqwest::Client::new()
+        .get(url)
+        .bearer_auth(api_key)
+        .header("version", env!("CARGO_PKG_VERSION"))
+        .send()
+        .await
+        .map_err(|err| format!("Failed to validate API key: {err}"))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!(
+            "Failed to validate API key: GrowthCircle models endpoint returned {status}. Check the key and try again."
+        ));
+    }
+
+    let body = response
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|err| format!("Failed to read GrowthCircle models: {err}"))?;
+    let model_names = extract_model_names(&body);
+    if model_names.is_empty() {
+        return Err("GrowthCircle returned no models for this API key.".to_string());
+    }
+
+    Ok(ApiKeyConfiguredState {
+        model_count: model_names.len(),
+        model_names: model_names.into_iter().take(6).collect(),
+    })
+}
+
+fn extract_model_names(body: &serde_json::Value) -> Vec<String> {
+    let from_codex_catalog = body
+        .get("models")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|model| {
+            model
+                .get("display_name")
+                .or_else(|| model.get("displayName"))
+                .or_else(|| model.get("slug"))
+                .and_then(serde_json::Value::as_str)
+                .map(ToString::to_string)
+        });
+    let from_openai_catalog = body
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|model| {
+            model
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(ToString::to_string)
+        });
+
+    from_codex_catalog.chain(from_openai_catalog).collect()
 }
 
 #[cfg(test)]
@@ -1011,6 +1181,10 @@ mod tests {
             login_status: LoginStatus::NotAuthenticated,
             app_server_request_handle: AppServerRequestHandle::InProcess(client.request_handle()),
             forced_login_method: Some(ForcedLoginMethod::Chatgpt),
+            api_key_only: false,
+            api_key_env_var: "OPENAI_API_KEY".to_string(),
+            api_key_provider_name: "OpenAI".to_string(),
+            api_key_validation_base_url: None,
             animations_enabled: true,
             animations_suppressed: std::cell::Cell::new(false),
         };
@@ -1245,6 +1419,31 @@ mod tests {
         assert!(
             !sym.contains("\x1B]8;;\x07injected"),
             "symbol must not contain raw control chars from URL"
+        );
+    }
+
+    #[test]
+    fn extract_model_names_supports_codex_and_openai_shapes() {
+        let codex_shape = serde_json::json!({
+            "models": [
+                {"slug": "gc-free", "display_name": "GC Free"},
+                {"slug": "gc-paid"}
+            ]
+        });
+        assert_eq!(
+            extract_model_names(&codex_shape),
+            vec!["GC Free".to_string(), "gc-paid".to_string()]
+        );
+
+        let openai_shape = serde_json::json!({
+            "data": [
+                {"id": "gc-free"},
+                {"id": "gc-paid"}
+            ]
+        });
+        assert_eq!(
+            extract_model_names(&openai_shape),
+            vec!["gc-free".to_string(), "gc-paid".to_string()]
         );
     }
 }

@@ -10,7 +10,7 @@
 
 ### DotSlash
 
-Future GitHub releases can contain a [DotSlash](https://dotslash-cli.com/) file for Grow CLI named `grow`. Using a DotSlash file makes it possible to make a lightweight commit to source control to ensure all contributors use the same version of an executable, regardless of what platform they use for development.
+Future GitHub releases can contain a [DotSlash](https://dotslash-cli.com/) file for Grow CLI named `growcli`. Using a DotSlash file makes it possible to make a lightweight commit to source control to ensure all contributors use the same version of an executable, regardless of what platform they use for development.
 
 ### Build from source
 
@@ -33,7 +33,7 @@ cargo install --locked cargo-nextest
 cargo build
 
 # Launch the TUI with a sample prompt.
-cargo run --bin grow -- "explain this codebase to me"
+cargo run --bin growcli -- "explain this codebase to me"
 
 # After making changes, use the root justfile helpers (they default to codex-rs):
 just fmt
@@ -49,6 +49,15 @@ just test
 cargo test --all-features
 ```
 
+### Run After Install
+
+Once the npm package is published and installed globally, the command users run
+is:
+
+```bash
+growcli
+```
+
 ## Tracing / verbose logging
 
 Codex is written in Rust, so it honors the `RUST_LOG` environment variable to configure its logging behavior.
@@ -59,6 +68,6 @@ The TUI defaults to `RUST_LOG=codex_core=info,codex_tui=info,codex_rmcp_client=i
 tail -F ~/.codex/log/codex-tui.log
 ```
 
-By comparison, the non-interactive mode (`grow exec`) defaults to `RUST_LOG=error`, but messages are printed inline, so there is no need to monitor a separate file.
+By comparison, the non-interactive mode (`growcli exec`) defaults to `RUST_LOG=error`, but messages are printed inline, so there is no need to monitor a separate file.
 
 See the Rust documentation on [`RUST_LOG`](https://docs.rs/env_logger/latest/env_logger/#enabling-logging) for more information on the configuration options.

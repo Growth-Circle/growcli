@@ -93,4 +93,4 @@ quoted_args=""
 for arg in "$@"; do
   quoted_args+=" $(printf '%q' "$arg")"
 done
-docker exec -it "$CONTAINER_NAME" bash -c "cd \"/app$WORK_DIR\" && grow --full-auto ${quoted_args}"
+docker exec -it "$CONTAINER_NAME" bash -c "cd \"/app$WORK_DIR\" && growcli --full-auto ${quoted_args}"

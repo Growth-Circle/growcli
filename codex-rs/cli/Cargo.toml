@@ -13,6 +13,10 @@ path = "src/main.rs"
 name = "grow"
 path = "src/grow.rs"
 
+[[bin]]
+name = "growcli"
+path = "src/growcli.rs"
+
 [lib]
 name = "codex_cli"
 path = "src/lib.rs"

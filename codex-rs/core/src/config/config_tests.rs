@@ -483,7 +483,7 @@ async fn load_config_defaults_to_growthcircle_provider() {
         config.model_provider.env_key.as_deref(),
         Some(GROWTHCIRCLE_API_KEY_ENV_VAR)
     );
-    assert!(!config.model_provider.requires_openai_auth);
+    assert!(config.model_provider.requires_openai_auth);
 }
 
 #[tokio::test]
