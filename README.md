@@ -10,6 +10,7 @@ After the package is published, users install once and run:
 
 ```shell
 npm install -g @growthcircle/growcli
+growcli --version
 growcli
 ```
 
