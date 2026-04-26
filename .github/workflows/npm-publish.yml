@@ -4,36 +4,71 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "npm version to publish, for example 0.1.0"
+        description: "npm version to publish, for example 0.1.1"
         required: true
-        default: "0.1.0"
+        default: "0.1.1"
       tag:
-        description: "npm dist-tag"
+        description: "npm dist-tag for the root package"
         required: true
         default: "latest"
 
 permissions:
   contents: read
 
+env:
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+  CARGO_PROFILE_RELEASE_LTO: "off"
+  CODEX_SKIP_VENDORED_BWRAP: "1"
+  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
 jobs:
-  publish-linux-x64:
-    name: Publish Linux x64 npm package
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    env:
-      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
-      CARGO_PROFILE_RELEASE_LTO: "off"
-      CODEX_SKIP_VENDORED_BWRAP: "1"
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+  publish-native:
+    name: Publish native npm package (${{ matrix.package_tag }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package_tag: linux-x64
+            runner: ubuntu-24.04
+            target_triple: x86_64-unknown-linux-musl
+            cargo_target: ""
+            package_os: linux
+            package_cpu: x64
+            binary_name: growcli
+          - package_tag: darwin-x64
+            runner: macos-15-intel
+            target_triple: x86_64-apple-darwin
+            cargo_target: x86_64-apple-darwin
+            package_os: darwin
+            package_cpu: x64
+            binary_name: growcli
+          - package_tag: darwin-arm64
+            runner: macos-15
+            target_triple: aarch64-apple-darwin
+            cargo_target: aarch64-apple-darwin
+            package_os: darwin
+            package_cpu: arm64
+            binary_name: growcli
+          - package_tag: win32-x64
+            runner: windows-2025
+            target_triple: x86_64-pc-windows-msvc
+            cargo_target: x86_64-pc-windows-msvc
+            package_os: win32
+            package_cpu: x64
+            binary_name: growcli.exe
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - uses: dtolnay/rust-toolchain@a0b273b48ed29de4470960879e8381ff45632f26 # 1.93.0
+      - if: ${{ matrix.cargo_target == '' }}
+        uses: dtolnay/rust-toolchain@a0b273b48ed29de4470960879e8381ff45632f26 # 1.93.0
 
-      - name: Build Grow CLI
-        working-directory: codex-rs
-        run: cargo build --release -p codex-cli --bin growcli
+      - if: ${{ matrix.cargo_target != '' }}
+        uses: dtolnay/rust-toolchain@a0b273b48ed29de4470960879e8381ff45632f26 # 1.93.0
+        with:
+          targets: ${{ matrix.cargo_target }}
 
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
@@ -41,40 +76,63 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           scope: "@growthcircle"
 
-      - name: Stage npm package
+      - name: Build Grow CLI
+        shell: bash
+        working-directory: codex-rs
         env:
-          VERSION: ${{ inputs.version }}
+          CARGO_TARGET: ${{ matrix.cargo_target }}
         run: |
           set -euo pipefail
-          stage="${RUNNER_TEMP}/growcli-npm"
-          target="x86_64-unknown-linux-musl"
-          rm -rf "$stage"
-          mkdir -p "$stage/bin" "$stage/vendor/${target}/codex"
-          mkdir -p dist
+          build_args=(--release -p codex-cli --bin growcli)
+          if [[ -n "${CARGO_TARGET}" ]]; then
+            build_args+=(--target "${CARGO_TARGET}")
+          fi
+          cargo build "${build_args[@]}"
 
-          cp codex-cli/bin/codex.js "$stage/bin/codex.js"
-          cp README.md "$stage/README.md"
-          cp codex-rs/target/release/growcli "$stage/vendor/${target}/codex/growcli"
-          chmod 755 "$stage/vendor/${target}/codex/growcli"
+      - name: Stage native package
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          PACKAGE_TAG: ${{ matrix.package_tag }}
+          TARGET_TRIPLE: ${{ matrix.target_triple }}
+          CARGO_TARGET: ${{ matrix.cargo_target }}
+          PACKAGE_OS: ${{ matrix.package_os }}
+          PACKAGE_CPU: ${{ matrix.package_cpu }}
+          BINARY_NAME: ${{ matrix.binary_name }}
+        run: |
+          set -euo pipefail
+          platform_version="${VERSION}-${PACKAGE_TAG}"
+          runner_temp="${RUNNER_TEMP}"
+          if command -v cygpath >/dev/null 2>&1; then
+            runner_temp="$(cygpath -u "${RUNNER_TEMP}")"
+          fi
+          stage="${runner_temp}/growcli-native-${PACKAGE_TAG}"
+          rm -rf "${stage}"
+          mkdir -p "${stage}/vendor/${TARGET_TRIPLE}/codex" dist
 
-          cat > "$stage/package.json" <<EOF
+          if [[ -n "${CARGO_TARGET}" ]]; then
+            source_binary="codex-rs/target/${CARGO_TARGET}/release/${BINARY_NAME}"
+          else
+            source_binary="codex-rs/target/release/${BINARY_NAME}"
+          fi
+          cp "${source_binary}" "${stage}/vendor/${TARGET_TRIPLE}/codex/${BINARY_NAME}"
+          if [[ "${BINARY_NAME}" != *.exe ]]; then
+            chmod 755 "${stage}/vendor/${TARGET_TRIPLE}/codex/${BINARY_NAME}"
+          fi
+          cp README.md "${stage}/README.md"
+
+          cat > "${stage}/package.json" <<EOF
           {
             "name": "@growthcircle/growcli",
-            "version": "${VERSION}",
-            "description": "GrowthCircle coding agent CLI",
+            "version": "${platform_version}",
+            "description": "Native Grow CLI binary for ${PACKAGE_TAG}",
             "license": "Apache-2.0",
-            "type": "module",
-            "bin": {
-              "growcli": "bin/codex.js",
-              "grow": "bin/codex.js"
-            },
-            "os": ["linux"],
-            "cpu": ["x64"],
+            "os": ["${PACKAGE_OS}"],
+            "cpu": ["${PACKAGE_CPU}"],
             "engines": {
               "node": ">=16"
             },
             "files": [
-              "bin",
               "vendor",
               "README.md"
             ],
@@ -85,10 +143,101 @@ jobs:
           }
           EOF
 
-          node "$stage/bin/codex.js" --version
-          npm pack "$stage" --pack-destination dist
+          npm pack "${stage}" --pack-destination dist
 
-      - name: Publish npm package
+      - name: Publish native package
+        shell: bash
+        env:
+          PACKAGE_TAG: ${{ matrix.package_tag }}
+        run: |
+          set -euo pipefail
+          test -n "${NODE_AUTH_TOKEN}" || {
+            echo "NPM_TOKEN secret is required to publish @growthcircle/growcli"
+            exit 1
+          }
+
+          tarball="$(ls dist/growthcircle-growcli-*.tgz | head -n 1)"
+          tarball="$(node -e 'console.log(require("path").resolve(process.argv[1]))' "${tarball}")"
+          set +e
+          publish_output="$(npm publish "${tarball}" --access public --tag "${PACKAGE_TAG}" 2>&1)"
+          publish_status=$?
+          set -e
+
+          echo "${publish_output}"
+          if [[ ${publish_status} -eq 0 ]]; then
+            exit 0
+          fi
+
+          if grep -qiE "previously published|cannot publish over|version already exists" <<< "${publish_output}"; then
+            echo "Skipping already-published native package for ${PACKAGE_TAG}"
+            exit 0
+          fi
+
+          exit "${publish_status}"
+
+  publish-root:
+    name: Publish root npm package
+    needs: publish-native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+          scope: "@growthcircle"
+
+      - name: Stage root package
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          stage="${RUNNER_TEMP}/growcli-root"
+          rm -rf "${stage}"
+          mkdir -p "${stage}/bin" dist
+
+          cp codex-cli/bin/codex.js "${stage}/bin/codex.js"
+          cp README.md "${stage}/README.md"
+
+          cat > "${stage}/package.json" <<EOF
+          {
+            "name": "@growthcircle/growcli",
+            "version": "${VERSION}",
+            "description": "GrowthCircle coding agent CLI",
+            "license": "Apache-2.0",
+            "type": "module",
+            "bin": {
+              "growcli": "bin/codex.js",
+              "grow": "bin/codex.js"
+            },
+            "engines": {
+              "node": ">=16"
+            },
+            "files": [
+              "bin",
+              "README.md"
+            ],
+            "optionalDependencies": {
+              "@growthcircle/growcli-linux-x64": "npm:@growthcircle/growcli@${VERSION}-linux-x64",
+              "@growthcircle/growcli-darwin-x64": "npm:@growthcircle/growcli@${VERSION}-darwin-x64",
+              "@growthcircle/growcli-darwin-arm64": "npm:@growthcircle/growcli@${VERSION}-darwin-arm64",
+              "@growthcircle/growcli-win32-x64": "npm:@growthcircle/growcli@${VERSION}-win32-x64"
+            },
+            "repository": {
+              "type": "git",
+              "url": "git+https://github.com/Growth-Circle/growcli.git"
+            }
+          }
+          EOF
+
+          npm pack "${stage}" --pack-destination dist
+
+      - name: Publish root package
+        shell: bash
         env:
           TAG: ${{ inputs.tag }}
         run: |
@@ -97,5 +246,60 @@ jobs:
             echo "NPM_TOKEN secret is required to publish @growthcircle/growcli"
             exit 1
           }
-          tarball="$(realpath "$(ls dist/growthcircle-growcli-*.tgz | head -n 1)")"
-          npm publish "$tarball" --access public --tag "$TAG"
+
+          tarball="$(ls dist/growthcircle-growcli-*.tgz | head -n 1)"
+          tarball="$(node -e 'console.log(require("path").resolve(process.argv[1]))' "${tarball}")"
+          publish_args=(npm publish "${tarball}" --access public)
+          if [[ -n "${TAG}" ]]; then
+            publish_args+=(--tag "${TAG}")
+          fi
+
+          set +e
+          publish_output="$("${publish_args[@]}" 2>&1)"
+          publish_status=$?
+          set -e
+
+          echo "${publish_output}"
+          if [[ ${publish_status} -eq 0 ]]; then
+            exit 0
+          fi
+
+          if grep -qiE "previously published|cannot publish over|version already exists" <<< "${publish_output}"; then
+            echo "Skipping already-published root package"
+            exit 0
+          fi
+
+          exit "${publish_status}"
+
+  verify-install:
+    name: Verify npm install (${{ matrix.package_tag }})
+    needs: publish-root
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package_tag: linux-x64
+            runner: ubuntu-24.04
+          - package_tag: darwin-x64
+            runner: macos-15-intel
+          - package_tag: darwin-arm64
+            runner: macos-15
+          - package_tag: win32-x64
+            runner: windows-2025
+
+    steps:
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+          scope: "@growthcircle"
+
+      - name: Install and run Grow CLI
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          npm exec --yes --package "@growthcircle/growcli@${VERSION}" -- growcli --version

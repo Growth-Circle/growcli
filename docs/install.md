@@ -4,7 +4,7 @@
 
 | Requirement                 | Details                                                         |
 | --------------------------- | --------------------------------------------------------------- |
-| Operating systems           | macOS 12+, Ubuntu 20.04+/Debian 10+, or Windows 11 **via WSL2** |
+| Operating systems           | macOS 12+, Ubuntu 20.04+/Debian 10+, or Windows 11              |
 | Git (optional, recommended) | 2.23+ for built-in PR helpers                                   |
 | RAM                         | 4-GB minimum (8-GB recommended)                                 |
 
@@ -49,9 +49,27 @@ just test
 cargo test --all-features
 ```
 
+### Install from npm
+
+Install the published package from npm:
+
+```bash
+npm install -g @growthcircle/growcli
+growcli --version
+growcli
+```
+
+The npm workflow publishes native payloads for Linux x64, macOS x64, macOS
+arm64 / Apple Silicon, and Windows x64. The root package uses npm optional
+dependencies to install the right native payload for the user's machine.
+
+Maintainers publish the package with the manual GitHub Actions `npm-publish`
+workflow after adding the `NPM_TOKEN` repository secret.
+
 ### Install from source
 
-Until the npm package is published, install the CLI from this repository:
+Install directly from this repository when developing or testing unpublished
+changes:
 
 ```bash
 git clone https://github.com/Growth-Circle/growcli.git
@@ -60,19 +78,6 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo install --path cli --bin growcli --locked
 growcli --version
 growcli
 ```
-
-### Run After npm Install
-
-Once the npm package is published and installed globally, Linux x64 users run:
-
-```bash
-npm install -g @growthcircle/growcli
-growcli --version
-growcli
-```
-
-Maintainers publish the package with the manual GitHub Actions `npm-publish`
-workflow after adding the `NPM_TOKEN` repository secret.
 
 ## Tracing / verbose logging
 

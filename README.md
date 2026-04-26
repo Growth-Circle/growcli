@@ -6,7 +6,27 @@ This repository is open source under Apache-2.0. Upstream attribution and notice
 
 ## Quickstart
 
-Install from source now:
+Install from npm:
+
+```shell
+npm install -g @growthcircle/growcli
+growcli --version
+growcli
+```
+
+The npm package is published at
+[`@growthcircle/growcli`](https://www.npmjs.com/package/@growthcircle/growcli).
+The same install command is used on supported Linux, macOS, and Windows
+machines.
+
+Current npm targets:
+
+- Linux x64
+- macOS x64
+- macOS arm64 / Apple Silicon
+- Windows x64
+
+Install from source:
 
 ```shell
 git clone https://github.com/Growth-Circle/growcli.git
@@ -16,20 +36,11 @@ growcli --version
 growcli
 ```
 
-After the npm package is published, Linux x64 users can install once and run:
-
-```shell
-npm install -g @growthcircle/growcli
-growcli --version
-growcli
-```
-
-If npm returns `404 Not Found`, the package has not been published to the npm
-registry yet. Use the source install above until the first npm release is live.
-
 Maintainers publish the npm package from GitHub Actions with the manual
-`npm-publish` workflow. The repository needs an `NPM_TOKEN` secret with publish
-access to the `@growthcircle` npm scope.
+`npm-publish` workflow. It builds native npm payloads for Linux, macOS, and
+Windows, publishes them first, then publishes the root package that selects the
+right native payload through npm optional dependencies. The repository needs an
+`NPM_TOKEN` secret with publish access to the `@growthcircle` npm scope.
 
 If `GC_API_KEY` is not set yet, Grow CLI asks for the GrowthCircle API key on
 startup, validates it, saves it locally, and loads the free or paid models
