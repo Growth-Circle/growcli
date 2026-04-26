@@ -1,0 +1,34 @@
+name: npm-access
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  set-public:
+    name: Set npm package public
+    runs-on: ubuntu-24.04
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    steps:
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+          scope: "@growthcircle"
+
+      - name: Verify package access
+        run: |
+          set -euo pipefail
+          test -n "${NODE_AUTH_TOKEN}" || {
+            echo "NPM_TOKEN secret is required"
+            exit 1
+          }
+
+          npm whoami
+          npm access ls-packages @growthcircle --json || true
+          npm access public @growthcircle/growcli
+          npm view @growthcircle/growcli version dist-tags.latest --json
