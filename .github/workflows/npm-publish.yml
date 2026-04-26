@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "npm version to publish, for example 0.1.1"
+        description: "npm version to publish, for example 0.1.2"
         required: true
-        default: "0.1.1"
+        default: "0.1.2"
       tag:
         description: "npm dist-tag for the root package"
         required: true

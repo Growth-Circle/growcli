@@ -6,7 +6,7 @@ This repository is open source under Apache-2.0. Upstream attribution and notice
 
 ## Quickstart
 
-Install from npm:
+Install Grow CLI from npm:
 
 ```shell
 npm install -g @growthcircle/growcli
@@ -14,7 +14,7 @@ growcli --version
 growcli
 ```
 
-The npm package is published at
+Package:
 [`@growthcircle/growcli`](https://www.npmjs.com/package/@growthcircle/growcli).
 The same install command is used on supported Linux, macOS, and Windows
 machines.

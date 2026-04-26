@@ -2,7 +2,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 #[cfg(not(debug_assertions))]
-pub(crate) const PACKAGE_URL: &str = "https://registry.npmjs.org/@openai%2fcodex";
+pub(crate) const PACKAGE_URL: &str = "https://registry.npmjs.org/@growthcircle%2fgrowcli";
 
 #[derive(Deserialize, Debug, Clone)]
 pub(crate) struct NpmPackageInfo {
@@ -38,6 +38,16 @@ pub(crate) fn ensure_version_ready(
 
     version_info_with_dist(package_info, version)?;
     Ok(())
+}
+
+pub(crate) fn latest_version_ready(package_info: &NpmPackageInfo) -> anyhow::Result<String> {
+    let latest = package_info
+        .dist_tags
+        .get("latest")
+        .map(String::as_str)
+        .ok_or_else(|| anyhow::anyhow!("npm package is missing latest dist-tag"))?;
+    ensure_version_ready(package_info, latest)?;
+    Ok(latest.to_string())
 }
 
 fn version_info_with_dist<'a>(
@@ -76,7 +86,7 @@ mod tests {
         serde_json::json!({
             "dist": {
                 "integrity": format!("sha512-{version}"),
-                "tarball": format!("https://registry.npmjs.org/@openai/codex/-/codex-{version}.tgz"),
+                "tarball": format!("https://registry.npmjs.org/@growthcircle/growcli/-/growcli-{version}.tgz"),
             }
         })
     }
@@ -98,6 +108,10 @@ mod tests {
         let package_info = package_info(latest, latest);
 
         ensure_version_ready(&package_info, latest).expect("npm package is ready");
+        assert_eq!(
+            latest_version_ready(&package_info).expect("latest package is ready"),
+            latest
+        );
     }
 
     #[test]

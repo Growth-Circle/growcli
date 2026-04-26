@@ -6,15 +6,15 @@ use codex_install_context::StandalonePlatform;
 /// Update action the CLI should perform after the TUI exits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpdateAction {
-    /// Update via `npm install -g @openai/codex@latest`.
+    /// Update via `npm install -g @growthcircle/growcli@latest`.
     NpmGlobalLatest,
-    /// Update via `bun install -g @openai/codex@latest`.
+    /// Update via `bun install -g @growthcircle/growcli@latest`.
     BunGlobalLatest,
-    /// Update via `brew upgrade codex`.
+    /// Update via npm. Grow CLI is published through npm, not Homebrew.
     BrewUpgrade,
-    /// Update via `curl -fsSL https://chatgpt.com/codex/install.sh | sh`.
+    /// Update via npm. Grow CLI is published through npm, not the Codex standalone installer.
     StandaloneUnix,
-    /// Update via `irm https://chatgpt.com/codex/install.ps1|iex`.
+    /// Update via npm. Grow CLI is published through npm, not the Codex standalone installer.
     StandaloneWindows,
 }
 
@@ -36,17 +36,15 @@ impl UpdateAction {
     /// Returns the list of command-line arguments for invoking the update.
     pub fn command_args(self) -> (&'static str, &'static [&'static str]) {
         match self {
-            UpdateAction::NpmGlobalLatest => ("npm", &["install", "-g", "@openai/codex"]),
-            UpdateAction::BunGlobalLatest => ("bun", &["install", "-g", "@openai/codex"]),
-            UpdateAction::BrewUpgrade => ("brew", &["upgrade", "--cask", "codex"]),
-            UpdateAction::StandaloneUnix => (
-                "sh",
-                &["-c", "curl -fsSL https://chatgpt.com/codex/install.sh | sh"],
-            ),
-            UpdateAction::StandaloneWindows => (
-                "powershell",
-                &["-c", "irm https://chatgpt.com/codex/install.ps1|iex"],
-            ),
+            UpdateAction::NpmGlobalLatest
+            | UpdateAction::BrewUpgrade
+            | UpdateAction::StandaloneUnix
+            | UpdateAction::StandaloneWindows => {
+                ("npm", &["install", "-g", "@growthcircle/growcli@latest"])
+            }
+            UpdateAction::BunGlobalLatest => {
+                ("bun", &["install", "-g", "@growthcircle/growcli@latest"])
+            }
         }
     }
 
@@ -112,15 +110,15 @@ mod tests {
         assert_eq!(
             UpdateAction::StandaloneUnix.command_args(),
             (
-                "sh",
-                &["-c", "curl -fsSL https://chatgpt.com/codex/install.sh | sh"][..],
+                "npm",
+                &["install", "-g", "@growthcircle/growcli@latest"][..],
             )
         );
         assert_eq!(
             UpdateAction::StandaloneWindows.command_args(),
             (
-                "powershell",
-                &["-c", "irm https://chatgpt.com/codex/install.ps1|iex"][..],
+                "npm",
+                &["install", "-g", "@growthcircle/growcli@latest"][..],
             )
         );
     }

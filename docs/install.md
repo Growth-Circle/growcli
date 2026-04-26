@@ -51,7 +51,7 @@ cargo test --all-features
 
 ### Install from npm
 
-Install the published package from npm:
+Install Grow CLI from npm:
 
 ```bash
 npm install -g @growthcircle/growcli

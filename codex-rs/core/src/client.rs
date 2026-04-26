@@ -91,6 +91,7 @@ use http::HeaderMap as ApiHeaderMap;
 use http::HeaderValue;
 use http::StatusCode as HttpStatusCode;
 use reqwest::StatusCode;
+use serde_json::Value;
 use std::time::Duration;
 use std::time::Instant;
 use tokio::sync::mpsc;
@@ -142,6 +143,45 @@ const MEMORIES_SUMMARIZE_ENDPOINT: &str = "/memories/trace_summarize";
 #[cfg(test)]
 pub(crate) const WEBSOCKET_CONNECT_TIMEOUT: Duration =
     Duration::from_millis(DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS);
+
+fn provider_uses_growthcircle_compat(provider: &ApiProvider) -> bool {
+    provider.name.eq_ignore_ascii_case("growthcircle")
+        || provider.base_url.contains("ai.growthcircle.id")
+}
+
+fn create_tools_json_for_provider(
+    provider: &ApiProvider,
+    tools: &[codex_tools::ToolSpec],
+) -> std::result::Result<Vec<Value>, serde_json::Error> {
+    let tools = create_tools_json_for_responses_api(tools)?;
+
+    if !provider_uses_growthcircle_compat(provider) {
+        return Ok(tools);
+    }
+
+    Ok(tools
+        .into_iter()
+        .filter(|tool| {
+            let has_name = tool
+                .get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|name| !name.trim().is_empty());
+            if has_name {
+                return true;
+            }
+
+            let tool_type = tool
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or("<unknown>");
+            warn!(
+                tool_type,
+                "dropping unnamed tool for GrowthCircle Responses compatibility"
+            );
+            false
+        })
+        .collect())
+}
 
 /// Session-scoped state shared by all [`ModelClient`] clones.
 ///
@@ -431,13 +471,12 @@ impl ModelClient {
             RequestRouteTelemetry::for_endpoint(RESPONSES_COMPACT_ENDPOINT),
             self.state.auth_env_telemetry.clone(),
         );
+        let instructions = prompt.base_instructions.text.clone();
+        let input = prompt.get_formatted_input();
+        let tools = create_tools_json_for_provider(&client_setup.api_provider, &prompt.tools)?;
         let client =
             ApiCompactClient::new(transport, client_setup.api_provider, client_setup.api_auth)
                 .with_telemetry(Some(request_telemetry));
-
-        let instructions = prompt.base_instructions.text.clone();
-        let input = prompt.get_formatted_input();
-        let tools = create_tools_json_for_responses_api(&prompt.tools)?;
         let reasoning = Self::build_reasoning(model_info, effort, summary);
         let verbosity = if model_info.support_verbosity {
             self.state.model_verbosity.or(model_info.default_verbosity)
@@ -837,7 +876,7 @@ impl ModelClientSession {
     ) -> Result<ResponsesApiRequest> {
         let instructions = &prompt.base_instructions.text;
         let input = prompt.get_formatted_input();
-        let tools = create_tools_json_for_responses_api(&prompt.tools)?;
+        let tools = create_tools_json_for_provider(provider, &prompt.tools)?;
         let default_reasoning_effort = model_info.default_reasoning_level;
         let reasoning = if model_info.supports_reasoning_summaries {
             Some(Reasoning {

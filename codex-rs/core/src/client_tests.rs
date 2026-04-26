@@ -7,6 +7,9 @@ use super::X_CODEX_PARENT_THREAD_ID_HEADER;
 use super::X_CODEX_TURN_METADATA_HEADER;
 use super::X_CODEX_WINDOW_ID_HEADER;
 use super::X_OPENAI_SUBAGENT_HEADER;
+use super::create_tools_json_for_provider;
+use codex_api::Provider as ApiProvider;
+use codex_api::RetryConfig;
 use codex_app_server_protocol::AuthMode;
 use codex_model_provider::BearerAuthProvider;
 use codex_model_provider_info::WireApi;
@@ -16,8 +19,10 @@ use codex_protocol::ThreadId;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
+use http::HeaderMap;
 use pretty_assertions::assert_eq;
 use serde_json::json;
+use std::time::Duration;
 
 fn test_model_client(session_source: SessionSource) -> ModelClient {
     let provider = create_oss_provider_with_base_url("https://example.com/v1", WireApi::Responses);
@@ -62,6 +67,23 @@ fn test_model_info() -> ModelInfo {
         "experimental_supported_tools": []
     }))
     .expect("deserialize test model info")
+}
+
+fn test_api_provider(name: &str, base_url: &str) -> ApiProvider {
+    ApiProvider {
+        name: name.to_string(),
+        base_url: base_url.to_string(),
+        query_params: None,
+        headers: HeaderMap::new(),
+        retry: RetryConfig {
+            max_attempts: 0,
+            base_delay: Duration::from_millis(1),
+            retry_429: false,
+            retry_5xx: false,
+            retry_transport: false,
+        },
+        stream_idle_timeout: Duration::from_secs(1),
+    }
 }
 
 fn test_session_telemetry() -> SessionTelemetry {
@@ -168,4 +190,34 @@ fn auth_request_telemetry_context_tracks_attached_auth_and_retry_phase() {
     assert!(auth_context.retry_after_unauthorized);
     assert_eq!(auth_context.recovery_mode, Some("managed"));
     assert_eq!(auth_context.recovery_phase, Some("refresh_token"));
+}
+
+#[test]
+fn growthcircle_tools_drop_unnamed_responses_tools() {
+    let provider = test_api_provider("GrowthCircle", "https://ai.growthcircle.id/v1");
+    let tools = vec![
+        codex_tools::create_local_shell_tool(),
+        codex_tools::create_shell_command_tool(codex_tools::CommandToolOptions {
+            allow_login_shell: true,
+            exec_permission_approvals_enabled: false,
+        }),
+    ];
+
+    let serialized = create_tools_json_for_provider(&provider, &tools).expect("serialize tools");
+
+    assert_eq!(serialized.len(), 1);
+    assert_eq!(
+        serialized[0].get("name").and_then(|name| name.as_str()),
+        Some("shell_command")
+    );
+}
+
+#[test]
+fn non_growthcircle_tools_keep_unnamed_responses_tools() {
+    let provider = test_api_provider("Other", "https://example.com/v1");
+    let tools = vec![codex_tools::create_local_shell_tool()];
+
+    let serialized = create_tools_json_for_provider(&provider, &tools).expect("serialize tools");
+
+    assert_eq!(serialized, vec![json!({ "type": "local_shell" })]);
 }
