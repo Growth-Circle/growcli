@@ -29,6 +29,7 @@ jobs:
           }
 
           npm whoami
-          npm access ls-packages @growthcircle --json || true
-          npm access public @growthcircle/growcli
+          npm access list packages @growthcircle --json || true
+          npm access set status=public @growthcircle/growcli
+          npm access get status @growthcircle/growcli
           npm view @growthcircle/growcli version dist-tags.latest --json
