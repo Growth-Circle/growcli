@@ -49,14 +49,30 @@ just test
 cargo test --all-features
 ```
 
-### Run After Install
+### Install from source
 
-Once the npm package is published and installed globally, the command users run
-is:
+Until the npm package is published, install the CLI from this repository:
 
 ```bash
+git clone https://github.com/Growth-Circle/growcli.git
+cd growcli/codex-rs
+CODEX_SKIP_VENDORED_BWRAP=1 cargo install --path cli --bin growcli --locked
+growcli --version
 growcli
 ```
+
+### Run After npm Install
+
+Once the npm package is published and installed globally, Linux x64 users run:
+
+```bash
+npm install -g @growthcircle/growcli
+growcli --version
+growcli
+```
+
+Maintainers publish the package with the manual GitHub Actions `npm-publish`
+workflow after adding the `NPM_TOKEN` repository secret.
 
 ## Tracing / verbose logging
 
