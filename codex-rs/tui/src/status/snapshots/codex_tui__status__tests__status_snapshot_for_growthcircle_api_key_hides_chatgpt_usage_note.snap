@@ -1,0 +1,21 @@
+---
+source: tui/src/status/tests.rs
+expression: sanitized
+---
+/status
+
+╭─────────────────────────────────────────────────────────────────────╮
+│  >_ Grow CLI (v0.0.0)                                               │
+│                                                                     │
+│  Model:                gpt-5.5 (reasoning medium, summaries auto)   │
+│  Model provider:       GrowthCircle - https://ai.growthcircle.id/v1 │
+│  Directory: [[workspace]]                                           │
+│  Permissions:          Custom (read-only, on-request)               │
+│  Agents.md:            <none>                                       │
+│  Account:              API key configured                           │
+│  Collaboration mode:   Default                                      │
+│                                                                     │
+│  Token usage:          164 total  (39 input + 125 output)           │
+│  Context window:       100% left (164 used / 272K)                  │
+│  Limits:               not provided by this provider                │
+╰─────────────────────────────────────────────────────────────────────╯

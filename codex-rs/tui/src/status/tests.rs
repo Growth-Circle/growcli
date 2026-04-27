@@ -11,6 +11,7 @@ use crate::test_support::test_path_buf;
 use chrono::Duration as ChronoDuration;
 use chrono::TimeZone;
 use chrono::Utc;
+use codex_model_provider_info::GROWTHCIRCLE_PROVIDER_ID;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::OPENAI_PROVIDER_ID;
 use codex_protocol::ThreadId;
@@ -951,6 +952,63 @@ async fn status_snapshot_shows_unavailable_limits_message() {
         /*reasoning_effort_override*/ None,
     );
     let mut rendered_lines = render_lines(&composite.display_lines(/*width*/ 80));
+    if cfg!(windows) {
+        for line in &mut rendered_lines {
+            *line = line.replace('\\', "/");
+        }
+    }
+    let sanitized = sanitize_directory(rendered_lines).join("\n");
+    assert_snapshot!(sanitized);
+}
+
+#[tokio::test]
+async fn status_snapshot_for_growthcircle_api_key_hides_chatgpt_usage_note() {
+    let temp_home = TempDir::new().expect("temp home");
+    let mut config = test_config(&temp_home).await;
+    config.model_provider_id = GROWTHCIRCLE_PROVIDER_ID.to_string();
+    config.model_provider = ModelProviderInfo::create_growthcircle_provider();
+    config.cwd = test_path_buf("/workspace/tests").abs();
+
+    let usage = TokenUsage {
+        input_tokens: 39,
+        cached_input_tokens: 0,
+        output_tokens: 125,
+        reasoning_output_tokens: 0,
+        total_tokens: 164,
+    };
+    let captured_at = chrono::Local
+        .with_ymd_and_hms(2024, 1, 2, 3, 4, 5)
+        .single()
+        .expect("timestamp");
+    let snapshot = RateLimitSnapshot {
+        limit_id: None,
+        limit_name: None,
+        primary: None,
+        secondary: None,
+        credits: None,
+        plan_type: None,
+        rate_limit_reached_type: None,
+    };
+    let rate_display = rate_limit_snapshot_display(&snapshot, captured_at);
+    let model_slug = crate::legacy_core::test_support::get_model_offline(config.model.as_deref());
+    let token_info = token_info_for(&model_slug, &config, &usage);
+
+    let composite = new_status_output(
+        &config,
+        Some(&StatusAccountDisplay::ApiKey),
+        Some(&token_info),
+        &usage,
+        &None,
+        /*thread_name*/ None,
+        /*forked_from*/ None,
+        Some(&rate_display),
+        None,
+        captured_at,
+        &model_slug,
+        Some("Default"),
+        Some(Some(ReasoningEffort::Medium)),
+    );
+    let mut rendered_lines = render_lines(&composite.display_lines(/*width*/ 88));
     if cfg!(windows) {
         for line in &mut rendered_lines {
             *line = line.replace('\\', "/");
