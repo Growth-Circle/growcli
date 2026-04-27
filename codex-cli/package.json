@@ -1,11 +1,10 @@
 {
   "name": "@growthcircle/growcli",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "license": "Apache-2.0",
   "bin": {
     "growcli": "bin/codex.js",
-    "grow": "bin/codex.js",
-    "codex": "bin/codex.js"
+    "grow": "bin/codex.js"
   },
   "type": "module",
   "engines": {

@@ -17,6 +17,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref_name != 'main' }}
 jobs:
   test:
+    if: github.repository == 'openai/codex'
     # Even though a no-cache-hit Windows build seems to exceed the 30-minute
     # limit on occasion, the more common reason for exceeding the limit is a
     # true test failure in a rust_test() marked "flaky" that gets run 3x.
@@ -131,6 +132,7 @@ jobs:
           key: ${{ steps.prepare_bazel.outputs.repository-cache-key }}
 
   clippy:
+    if: github.repository == 'openai/codex'
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -215,6 +217,7 @@ jobs:
           key: ${{ steps.prepare_bazel.outputs.repository-cache-key }}
 
   verify-release-build:
+    if: github.repository == 'openai/codex'
     timeout-minutes: 30
     strategy:
       fail-fast: false

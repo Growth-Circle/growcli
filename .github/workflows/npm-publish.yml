@@ -1,12 +1,19 @@
 name: npm-publish
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/npm-publish.yml"
+      - "codex-cli/**"
+      - "codex-rs/**"
+      - "README.md"
   workflow_dispatch:
     inputs:
       version:
-        description: "npm version to publish, for example 0.1.2"
+        description: "npm version to publish, for example 0.1.3"
         required: true
-        default: "0.1.2"
+        default: "0.1.3"
       tag:
         description: "npm dist-tag for the root package"
         required: true
@@ -22,8 +29,66 @@ env:
   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
 jobs:
+  resolve-publish-settings:
+    name: Resolve publish settings
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      should_publish: ${{ steps.resolve.outputs.should_publish }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+          scope: "@growthcircle"
+
+      - name: Resolve version and npm tag
+        id: resolve
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            version="${INPUT_VERSION}"
+            tag="${INPUT_TAG}"
+          else
+            version="$(node -p 'require("./codex-cli/package.json").version')"
+            tag="latest"
+          fi
+
+          test -n "${version}" || {
+            echo "Unable to resolve npm package version" >&2
+            exit 1
+          }
+          test -n "${tag}" || tag="latest"
+
+          should_publish="true"
+          if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ]] \
+            && npm view "@growthcircle/growcli@${version}" version >/dev/null 2>&1; then
+            should_publish="false"
+            echo "@growthcircle/growcli@${version} already exists; skipping automatic publish"
+          fi
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "should_publish=${should_publish}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### npm publish settings"
+            echo
+            echo "- version: ${version}"
+            echo "- tag: ${tag}"
+            echo "- should_publish: ${should_publish}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   publish-native:
     name: Publish native npm package (${{ matrix.package_tag }})
+    needs: resolve-publish-settings
+    if: needs.resolve-publish-settings.outputs.should_publish == 'true'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:
@@ -92,7 +157,7 @@ jobs:
       - name: Stage native package
         shell: bash
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ needs.resolve-publish-settings.outputs.version }}
           PACKAGE_TAG: ${{ matrix.package_tag }}
           TARGET_TRIPLE: ${{ matrix.target_triple }}
           CARGO_TARGET: ${{ matrix.cargo_target }}
@@ -177,7 +242,8 @@ jobs:
 
   publish-root:
     name: Publish root npm package
-    needs: publish-native
+    needs: [resolve-publish-settings, publish-native]
+    if: needs.resolve-publish-settings.outputs.should_publish == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
 
@@ -193,7 +259,7 @@ jobs:
       - name: Stage root package
         shell: bash
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ needs.resolve-publish-settings.outputs.version }}
         run: |
           set -euo pipefail
           stage="${RUNNER_TEMP}/growcli-root"
@@ -239,7 +305,7 @@ jobs:
       - name: Publish root package
         shell: bash
         env:
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ needs.resolve-publish-settings.outputs.tag }}
         run: |
           set -euo pipefail
           test -n "${NODE_AUTH_TOKEN}" || {
@@ -273,7 +339,8 @@ jobs:
 
   verify-install:
     name: Verify npm install (${{ matrix.package_tag }})
-    needs: publish-root
+    needs: [resolve-publish-settings, publish-root]
+    if: needs.resolve-publish-settings.outputs.should_publish == 'true'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     strategy:
@@ -299,7 +366,7 @@ jobs:
       - name: Install and run Grow CLI
         shell: bash
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ needs.resolve-publish-settings.outputs.version }}
         run: |
           set -euo pipefail
           npm exec --yes --package "@growthcircle/growcli@${VERSION}" -- growcli --version

@@ -2,7 +2,7 @@
 // Unified entry point for Grow CLI.
 
 import { spawn } from "node:child_process";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { createRequire } from "node:module";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -11,6 +11,7 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const require = createRequire(import.meta.url);
+const packageName = readPackageName();
 
 const PLATFORM_PACKAGE_BY_TARGET = {
   "x86_64-unknown-linux-musl": "@growthcircle/growcli-linux-x64",
@@ -107,10 +108,7 @@ try {
     vendorRoot = localVendorRoot;
   } else {
     const packageManager = detectPackageManager();
-    const updateCommand =
-      packageManager === "bun"
-        ? "bun install -g @growthcircle/growcli@latest"
-        : "npm install -g @growthcircle/growcli@latest";
+    const updateCommand = globalInstallCommand(packageManager);
     throw new Error(
       `Missing optional dependency ${platformPackage}. Reinstall Grow CLI: ${updateCommand}`,
     );
@@ -119,10 +117,7 @@ try {
 
 if (!vendorRoot) {
   const packageManager = detectPackageManager();
-  const updateCommand =
-    packageManager === "bun"
-      ? "bun install -g @growthcircle/growcli@latest"
-      : "npm install -g @growthcircle/growcli@latest";
+  const updateCommand = globalInstallCommand(packageManager);
   throw new Error(
     `Missing optional dependency ${platformPackage}. Reinstall Grow CLI: ${updateCommand}`,
   );
@@ -131,11 +126,10 @@ if (!vendorRoot) {
 const { archRoot, binaryPath } = findNativeBinary(vendorRoot);
 if (!existsSync(binaryPath)) {
   const packageManager = detectPackageManager();
-  const updateCommand =
-    packageManager === "bun"
-      ? "bun install -g @growthcircle/growcli@latest"
-      : "npm install -g @growthcircle/growcli@latest";
-  throw new Error(`Missing Grow CLI native binary. Reinstall: ${updateCommand}`);
+  const updateCommand = globalInstallCommand(packageManager);
+  throw new Error(
+    `Missing Grow CLI native binary. Reinstall: ${updateCommand}`,
+  );
 }
 
 // Use an asynchronous spawn instead of spawnSync so that Node is able to
@@ -177,6 +171,25 @@ function detectPackageManager() {
   }
 
   return userAgent ? "npm" : null;
+}
+
+function readPackageName() {
+  try {
+    const packageJson = JSON.parse(
+      readFileSync(path.join(__dirname, "..", "package.json"), "utf8"),
+    );
+    return typeof packageJson.name === "string"
+      ? packageJson.name
+      : "@growthcircle/growcli";
+  } catch {
+    return "@growthcircle/growcli";
+  }
+}
+
+function globalInstallCommand(packageManager) {
+  return packageManager === "bun"
+    ? `bun install -g ${packageName}@latest`
+    : `npm install -g ${packageName}@latest`;
 }
 
 const additionalDirs = [];
