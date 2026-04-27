@@ -2,11 +2,45 @@
 
 ### System requirements
 
-| Requirement                 | Details                                            |
-| --------------------------- | -------------------------------------------------- |
-| Operating systems           | macOS 12+, Ubuntu 20.04+/Debian 10+, or Windows 11 |
-| Git (optional, recommended) | 2.23+ for built-in PR helpers                      |
-| RAM                         | 4-GB minimum (8-GB recommended)                    |
+#### Runtime requirements
+
+These are the minimum requirements for installing and running the published npm package.
+
+| Requirement                 | Minimum                                                                  | Recommended / optimal                                                                                        |
+| --------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| Operating system            | macOS 12+, Ubuntu 20.04+/Debian 10+, Windows 11, or WSL2 on Windows 11   | Latest stable macOS, Ubuntu 22.04+/Debian 12+, Windows 11 23H2+ with Windows Terminal, or WSL2 Ubuntu 22.04+ |
+| CPU / architecture          | 64-bit x64 CPU for Linux and Windows; x64 or Apple Silicon for macOS     | 4+ CPU cores; Apple Silicon or a modern x64 CPU for large repositories                                       |
+| RAM                         | 4 GB                                                                     | 8 GB for normal use, 16 GB+ for large monorepos or many concurrent tools/agents                              |
+| Disk space                  | 250 MB free for the npm package and local state                          | 1 GB+ free for logs, cached models metadata, and longer sessions                                             |
+| Node.js / npm               | Node.js 16+ for the npm launcher                                         | Node.js 22+ if you also work on this repository                                                              |
+| Network                     | HTTPS access to GrowthCircle AI and any MCP/tool endpoints you configure | Stable broadband connection for streaming responses and image/vision uploads                                 |
+| Terminal                    | UTF-8 capable terminal                                                   | Windows Terminal, iTerm2, WezTerm, Alacritty, or a modern VS Code terminal                                   |
+| Git (optional, recommended) | 2.23+                                                                    | Latest stable Git for built-in PR/repo helpers                                                               |
+
+Current published npm native payloads are:
+
+- Linux x64
+- macOS x64
+- macOS arm64 / Apple Silicon
+- Windows x64
+
+The launcher contains target detection for additional architectures, but a native npm payload must be published for that target before `npm install -g @growthcircle/growcli` works out of the box. Until then, unsupported targets must build from source.
+
+#### Build-from-source requirements
+
+These are only needed when developing Grow CLI or installing an unpublished build from source.
+
+| Requirement            | Minimum                                                                      | Recommended / notes                                                                   |
+| ---------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Rust toolchain         | Rust 1.93.0, as pinned in `codex-rs/rust-toolchain.toml`                     | Use `rustup` so `rustfmt`, `clippy`, and `rust-src` are installed consistently        |
+| Node.js                | 22+ for repository tooling                                                   | Matches CI and root `package.json`                                                    |
+| pnpm                   | 10.33.0+                                                                     | The repository pins pnpm 10.33.0 in `packageManager`                                  |
+| RAM                    | 8 GB                                                                         | 16 GB+ for full workspace builds/tests                                                |
+| Disk space             | 10 GB free                                                                   | 20 GB+ if running broad test suites or keeping multiple `target/` directories         |
+| Linux system libraries | `pkg-config` plus `libcap` development files if building vendored bubblewrap | If unavailable, set `CODEX_SKIP_VENDORED_BWRAP=1` for source installs, as shown below |
+| Helper tools           | `just`                                                                       | `cargo-nextest` is optional but faster for broad test runs                            |
+
+For day-to-day runtime, a modest machine is fine because model inference runs remotely. More RAM/CPU mainly helps when Grow CLI is reading large repositories, running local build/test commands, handling large terminal output, or running multiple agents/tools concurrently.
 
 ### DotSlash
 

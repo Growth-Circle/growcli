@@ -118,5 +118,5 @@ Grow CLI tracks upstream OpenAI Codex CLI where practical. The main fork-specifi
 Helpful docs:
 
 - [GrowthCircle setup](./docs/growthcircle.md)
-- [Installing and building](./docs/install.md)
+- [Installing, building, and system requirements](./docs/install.md)
 - [Contributing](./docs/contributing.md)
