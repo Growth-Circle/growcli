@@ -369,4 +369,15 @@ jobs:
           VERSION: ${{ needs.resolve-publish-settings.outputs.version }}
         run: |
           set -euo pipefail
+          for attempt in {1..12}; do
+            if npm view "@growthcircle/growcli@${VERSION}" version >/dev/null 2>&1; then
+              break
+            fi
+            if [[ "${attempt}" -eq 12 ]]; then
+              echo "@growthcircle/growcli@${VERSION} is not visible in npm yet"
+              exit 1
+            fi
+            echo "Waiting for @growthcircle/growcli@${VERSION} to propagate to npm (attempt ${attempt}/12)"
+            sleep 10
+          done
           npm exec --yes --package "@growthcircle/growcli@${VERSION}" -- growcli --version
