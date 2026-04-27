@@ -1,9 +1,12 @@
 use codex_protocol::config_types::ReasoningSummary;
 use codex_protocol::openai_models::ConfigShellToolType;
+use codex_protocol::openai_models::InputModality;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ModelInstructionsVariables;
 use codex_protocol::openai_models::ModelMessages;
 use codex_protocol::openai_models::ModelVisibility;
+use codex_protocol::openai_models::ReasoningEffort;
+use codex_protocol::openai_models::ReasoningEffortPreset;
 use codex_protocol::openai_models::TruncationMode;
 use codex_protocol::openai_models::TruncationPolicyConfig;
 use codex_protocol::openai_models::WebSearchToolType;
@@ -62,15 +65,90 @@ pub fn with_config_overrides(mut model: ModelInfo, config: &ModelsManagerConfig)
     model
 }
 
+pub fn is_probably_chat_model_slug(slug: &str) -> bool {
+    let slug_lowercase = slug.to_ascii_lowercase();
+    let non_chat_markers = [
+        "embed",
+        "embedding",
+        "image",
+        "img",
+        "audio",
+        "tts",
+        "whisper",
+        "speech",
+        "moderation",
+        "rerank",
+    ];
+    if non_chat_markers
+        .iter()
+        .any(|marker| slug_lowercase.contains(marker))
+    {
+        return false;
+    }
+
+    let chat_model_markers = [
+        "gpt-", "o1", "o3", "o4", "o5", "claude", "opus", "sonnet", "haiku", "gemini", "deepseek",
+        "qwen", "kimi", "moonshot", "minimax", "glm", "zhipu", "grok", "llama", "mistral",
+        "mixtral", "command", "nova", "ernie", "hunyuan", "yi-",
+    ];
+    chat_model_markers
+        .iter()
+        .any(|marker| slug_lowercase.contains(marker))
+}
+
+pub fn default_input_modalities_for_slug(slug: &str) -> Option<Vec<InputModality>> {
+    is_probably_chat_model_slug(slug).then(default_input_modalities)
+}
+
+pub fn default_reasoning_metadata_for_slug(
+    slug: &str,
+) -> Option<(Option<ReasoningEffort>, Vec<ReasoningEffortPreset>)> {
+    if !is_probably_chat_model_slug(slug) {
+        return None;
+    }
+
+    let slug_lowercase = slug.to_ascii_lowercase();
+    let default_reasoning_level = if slug_lowercase == "gpt-5.3-codex-spark" {
+        ReasoningEffort::High
+    } else {
+        ReasoningEffort::Medium
+    };
+    Some((
+        Some(default_reasoning_level),
+        vec![
+            ReasoningEffortPreset {
+                effort: ReasoningEffort::Low,
+                description: "Fast responses with lighter reasoning".to_string(),
+            },
+            ReasoningEffortPreset {
+                effort: ReasoningEffort::Medium,
+                description: "Balances speed and reasoning depth for everyday tasks".to_string(),
+            },
+            ReasoningEffortPreset {
+                effort: ReasoningEffort::High,
+                description: "Greater reasoning depth for complex problems".to_string(),
+            },
+            ReasoningEffortPreset {
+                effort: ReasoningEffort::XHigh,
+                description: "Extra high reasoning depth for complex problems".to_string(),
+            },
+        ],
+    ))
+}
+
 /// Build a minimal fallback model descriptor for missing/unknown slugs.
 pub fn model_info_from_slug(slug: &str) -> ModelInfo {
     warn!("Unknown model {slug} is used. This will use fallback model metadata.");
+    let (default_reasoning_level, supported_reasoning_levels) =
+        default_reasoning_metadata_for_slug(slug).unwrap_or_default();
+    let supports_reasoning_summaries = !supported_reasoning_levels.is_empty();
+    let input_modalities = default_input_modalities_for_slug(slug).unwrap_or_default();
     ModelInfo {
         slug: slug.to_string(),
         display_name: slug.to_string(),
         description: None,
-        default_reasoning_level: None,
-        supported_reasoning_levels: Vec::new(),
+        default_reasoning_level,
+        supported_reasoning_levels,
         shell_type: ConfigShellToolType::Default,
         visibility: ModelVisibility::None,
         supported_in_api: true,
@@ -80,7 +158,7 @@ pub fn model_info_from_slug(slug: &str) -> ModelInfo {
         upgrade: None,
         base_instructions: BASE_INSTRUCTIONS.to_string(),
         model_messages: local_personality_messages_for_slug(slug),
-        supports_reasoning_summaries: false,
+        supports_reasoning_summaries,
         default_reasoning_summary: ReasoningSummary::Auto,
         support_verbosity: false,
         default_verbosity: None,
@@ -94,7 +172,7 @@ pub fn model_info_from_slug(slug: &str) -> ModelInfo {
         auto_compact_token_limit: None,
         effective_context_window_percent: 95,
         experimental_supported_tools: Vec::new(),
-        input_modalities: default_input_modalities(),
+        input_modalities,
         used_fallback_model_metadata: true, // this is the fallback model metadata
         supports_search_tool: false,
     }

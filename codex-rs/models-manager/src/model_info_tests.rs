@@ -72,3 +72,41 @@ fn model_context_window_uses_model_value_without_override() {
 
     assert_eq!(updated, model);
 }
+
+#[test]
+fn fallback_gpt5_model_enables_reasoning_metadata() {
+    let model = super::model_info_from_slug("gpt-5.5-preview");
+
+    assert!(model.supports_reasoning_summaries);
+    assert_eq!(model.input_modalities, default_input_modalities());
+    assert_eq!(
+        model.supported_reasoning_levels,
+        vec![
+            ReasoningEffortPreset {
+                effort: ReasoningEffort::Low,
+                description: "Fast responses with lighter reasoning".to_string(),
+            },
+            ReasoningEffortPreset {
+                effort: ReasoningEffort::Medium,
+                description: "Balances speed and reasoning depth for everyday tasks".to_string(),
+            },
+            ReasoningEffortPreset {
+                effort: ReasoningEffort::High,
+                description: "Greater reasoning depth for complex problems".to_string(),
+            },
+            ReasoningEffortPreset {
+                effort: ReasoningEffort::XHigh,
+                description: "Extra high reasoning depth for complex problems".to_string(),
+            },
+        ]
+    );
+}
+
+#[test]
+fn fallback_non_chat_model_does_not_enable_reasoning_metadata() {
+    let model = super::model_info_from_slug("text-embedding-3-large");
+
+    assert!(!model.supports_reasoning_summaries);
+    assert!(model.supported_reasoning_levels.is_empty());
+    assert!(model.input_modalities.is_empty());
+}

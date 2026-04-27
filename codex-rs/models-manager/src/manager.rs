@@ -341,8 +341,60 @@ impl OpenAiModelsManager {
                 .iter()
                 .position(|existing| existing.slug == model.slug)
             {
-                existing_models[existing_index] = model;
+                let existing = &existing_models[existing_index];
+                let mut merged = model;
+                if merged.supported_reasoning_levels.is_empty()
+                    && !existing.supported_reasoning_levels.is_empty()
+                {
+                    merged.supported_reasoning_levels = existing.supported_reasoning_levels.clone();
+                }
+                if merged.default_reasoning_level.is_none() {
+                    merged.default_reasoning_level = existing.default_reasoning_level;
+                }
+                if merged.additional_speed_tiers.is_empty()
+                    && !existing.additional_speed_tiers.is_empty()
+                {
+                    merged.additional_speed_tiers = existing.additional_speed_tiers.clone();
+                }
+                if merged.supported_reasoning_levels.is_empty()
+                    && let Some((default_reasoning_level, supported_reasoning_levels)) =
+                        model_info::default_reasoning_metadata_for_slug(&merged.slug)
+                {
+                    merged.default_reasoning_level =
+                        merged.default_reasoning_level.or(default_reasoning_level);
+                    merged.supported_reasoning_levels = supported_reasoning_levels;
+                    merged.supports_reasoning_summaries = true;
+                }
+                if merged.used_fallback_model_metadata
+                    && !merged
+                        .input_modalities
+                        .contains(&codex_protocol::openai_models::InputModality::Image)
+                    && let Some(input_modalities) =
+                        model_info::default_input_modalities_for_slug(&merged.slug)
+                {
+                    merged.input_modalities = input_modalities;
+                }
+                existing_models[existing_index] = merged;
             } else {
+                let mut model = model;
+                if model.supported_reasoning_levels.is_empty()
+                    && let Some((default_reasoning_level, supported_reasoning_levels)) =
+                        model_info::default_reasoning_metadata_for_slug(&model.slug)
+                {
+                    model.default_reasoning_level =
+                        model.default_reasoning_level.or(default_reasoning_level);
+                    model.supported_reasoning_levels = supported_reasoning_levels;
+                    model.supports_reasoning_summaries = true;
+                }
+                if model.used_fallback_model_metadata
+                    && !model
+                        .input_modalities
+                        .contains(&codex_protocol::openai_models::InputModality::Image)
+                    && let Some(input_modalities) =
+                        model_info::default_input_modalities_for_slug(&model.slug)
+                {
+                    model.input_modalities = input_modalities;
+                }
                 existing_models.push(model);
             }
         }

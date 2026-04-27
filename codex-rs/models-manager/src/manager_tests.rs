@@ -12,7 +12,9 @@ use codex_login::TokenData;
 use codex_login::auth::AgentIdentityAuth;
 use codex_login::auth::AgentIdentityAuthRecord;
 use codex_protocol::account::PlanType;
+use codex_protocol::openai_models::InputModality;
 use codex_protocol::openai_models::ModelsResponse;
+use codex_protocol::openai_models::ReasoningEffort;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::collections::VecDeque;
@@ -352,6 +354,136 @@ async fn get_model_info_rejects_multi_segment_namespace_suffix_matching() {
 
     assert_eq!(model_info.slug, namespaced_model);
     assert!(model_info.used_fallback_model_metadata);
+}
+
+#[tokio::test]
+async fn refresh_preserves_bundled_reasoning_and_speed_metadata_when_remote_omits_them() {
+    let bundled_models = load_remote_models_from_file().expect("bundled models should load");
+    let remote_models = bundled_models
+        .iter()
+        .cloned()
+        .map(|mut model| {
+            model.supported_reasoning_levels.clear();
+            model.default_reasoning_level = None;
+            model.additional_speed_tiers.clear();
+            model
+        })
+        .collect();
+    let codex_home = tempdir().expect("temp dir");
+    let endpoint = TestModelsEndpoint::new(vec![remote_models]);
+    let manager = openai_manager_for_tests(codex_home.path().to_path_buf(), endpoint);
+
+    manager
+        .refresh_available_models(RefreshStrategy::Online)
+        .await
+        .expect("refresh succeeds");
+
+    let refreshed_models = manager.get_remote_models().await;
+    for bundled in bundled_models {
+        let refreshed = refreshed_models
+            .iter()
+            .find(|model| model.slug == bundled.slug)
+            .expect("refreshed model should exist");
+        assert_eq!(
+            refreshed.supported_reasoning_levels, bundled.supported_reasoning_levels,
+            "reasoning metadata should be preserved for {}",
+            bundled.slug
+        );
+        assert_eq!(
+            refreshed.default_reasoning_level, bundled.default_reasoning_level,
+            "default reasoning should be preserved for {}",
+            bundled.slug
+        );
+        assert_eq!(
+            refreshed.additional_speed_tiers, bundled.additional_speed_tiers,
+            "speed tier metadata should be preserved for {}",
+            bundled.slug
+        );
+    }
+}
+
+#[tokio::test]
+async fn refresh_adds_default_reasoning_for_unbundled_reasoning_models() {
+    let mut spark = remote_model("gpt-5.3-codex-spark", "Spark", /*priority*/ 0);
+    spark.supported_reasoning_levels.clear();
+    spark.default_reasoning_level = None;
+    spark.input_modalities = vec![InputModality::Text];
+    spark.used_fallback_model_metadata = true;
+    let mut opus = remote_model("claude-opus-4.7", "Opus", /*priority*/ 1);
+    opus.supported_reasoning_levels.clear();
+    opus.default_reasoning_level = None;
+    opus.input_modalities = vec![InputModality::Text];
+    opus.used_fallback_model_metadata = true;
+    let mut minimax = remote_model("minimax-m2", "Minimax", /*priority*/ 2);
+    minimax.supported_reasoning_levels.clear();
+    minimax.default_reasoning_level = None;
+    minimax.input_modalities = vec![InputModality::Text];
+    minimax.used_fallback_model_metadata = true;
+    let mut kimi = remote_model("kimi-k2-thinking", "Kimi", /*priority*/ 3);
+    kimi.supported_reasoning_levels.clear();
+    kimi.default_reasoning_level = None;
+    kimi.input_modalities = vec![InputModality::Text];
+    kimi.used_fallback_model_metadata = true;
+    let mut glm = remote_model("glm-4.6", "GLM", /*priority*/ 4);
+    glm.supported_reasoning_levels.clear();
+    glm.default_reasoning_level = None;
+    glm.input_modalities = vec![InputModality::Text];
+    glm.used_fallback_model_metadata = true;
+    let codex_home = tempdir().expect("temp dir");
+    let endpoint = TestModelsEndpoint::new(vec![vec![spark, opus, minimax, kimi, glm]]);
+    let manager = openai_manager_for_tests(codex_home.path().to_path_buf(), endpoint);
+
+    manager
+        .refresh_available_models(RefreshStrategy::Online)
+        .await
+        .expect("refresh succeeds");
+
+    let refreshed_models = manager.get_remote_models().await;
+    let spark = refreshed_models
+        .iter()
+        .find(|model| model.slug == "gpt-5.3-codex-spark")
+        .expect("refreshed spark model should exist");
+    assert_eq!(spark.default_reasoning_level, Some(ReasoningEffort::High));
+    let opus = refreshed_models
+        .iter()
+        .find(|model| model.slug == "claude-opus-4.7")
+        .expect("refreshed opus model should exist");
+    assert_eq!(opus.default_reasoning_level, Some(ReasoningEffort::Medium));
+    let minimax = refreshed_models
+        .iter()
+        .find(|model| model.slug == "minimax-m2")
+        .expect("refreshed minimax model should exist");
+    assert_eq!(
+        minimax.default_reasoning_level,
+        Some(ReasoningEffort::Medium)
+    );
+    let kimi = refreshed_models
+        .iter()
+        .find(|model| model.slug == "kimi-k2-thinking")
+        .expect("refreshed kimi model should exist");
+    assert_eq!(kimi.default_reasoning_level, Some(ReasoningEffort::Medium));
+    let glm = refreshed_models
+        .iter()
+        .find(|model| model.slug == "glm-4.6")
+        .expect("refreshed glm model should exist");
+    assert_eq!(glm.default_reasoning_level, Some(ReasoningEffort::Medium));
+    for model in [spark, opus, minimax, kimi, glm] {
+        assert!(model.supports_reasoning_summaries);
+        assert!(model.input_modalities.contains(&InputModality::Image));
+        assert_eq!(
+            model
+                .supported_reasoning_levels
+                .iter()
+                .map(|preset| preset.effort)
+                .collect::<Vec<_>>(),
+            vec![
+                ReasoningEffort::Low,
+                ReasoningEffort::Medium,
+                ReasoningEffort::High,
+                ReasoningEffort::XHigh,
+            ]
+        );
+    }
 }
 
 #[tokio::test]
