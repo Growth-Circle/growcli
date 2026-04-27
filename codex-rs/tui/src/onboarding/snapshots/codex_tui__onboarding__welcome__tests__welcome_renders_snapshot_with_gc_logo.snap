@@ -1,0 +1,11 @@
+---
+source: tui/src/onboarding/welcome.rs
+expression: terminal.backend()
+---
+    ____    ____    
+   / ___|  / ___|   
+  | |  _  | |       
+  | |_| | | |___    
+   \____|  \____|   
+
+  Welcome to Grow CLI

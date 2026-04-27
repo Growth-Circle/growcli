@@ -14,14 +14,15 @@ use ratatui::widgets::Wrap;
 use std::cell::Cell;
 
 use crate::ascii_animation::AsciiAnimation;
+use crate::frames::FRAMES_GC;
 use crate::onboarding::onboarding_screen::KeyboardHandler;
 use crate::onboarding::onboarding_screen::StepStateProvider;
 use crate::tui::FrameRequester;
 
 use super::onboarding_screen::StepState;
 
-const MIN_ANIMATION_HEIGHT: u16 = 37;
-const MIN_ANIMATION_WIDTH: u16 = 60;
+const MIN_LOGO_HEIGHT: u16 = 8;
+const MIN_LOGO_WIDTH: u16 = 24;
 
 pub(crate) struct WelcomeWidget {
     pub is_logged_in: bool,
@@ -78,23 +79,24 @@ impl WidgetRef for &WelcomeWidget {
         }
 
         let layout_area = self.layout_area.get().unwrap_or(area);
-        // Skip the animation entirely when the viewport is too small so we don't clip frames.
-        let show_animation = self.animations_enabled
-            && !self.animations_suppressed.get()
-            && layout_area.height >= MIN_ANIMATION_HEIGHT
-            && layout_area.width >= MIN_ANIMATION_WIDTH;
+        // Skip the logo when the viewport is too small so we don't clip frames.
+        let show_logo =
+            layout_area.height >= MIN_LOGO_HEIGHT && layout_area.width >= MIN_LOGO_WIDTH;
 
         let mut lines: Vec<Line> = Vec::new();
-        if show_animation {
-            let frame = self.animation.current_frame();
-            lines.extend(frame.lines().map(Into::into));
+        if show_logo {
+            let frame = if self.animations_enabled && !self.animations_suppressed.get() {
+                self.animation.current_frame()
+            } else {
+                FRAMES_GC[0]
+            };
+            lines.extend(frame.lines().map(|line| Line::from(line.cyan().bold())));
             lines.push("".into());
         }
         lines.push(Line::from(vec![
             "  ".into(),
             "Welcome to ".into(),
-            "Codex".bold(),
-            ", OpenAI's command-line coding agent".into(),
+            "Grow CLI".bold(),
         ]));
 
         Paragraph::new(lines)
@@ -115,7 +117,9 @@ impl StepStateProvider for WelcomeWidget {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_backend::VT100Backend;
     use pretty_assertions::assert_eq;
+    use ratatui::Terminal;
     use ratatui::buffer::Buffer;
     use ratatui::layout::Rect;
 
@@ -134,13 +138,13 @@ mod tests {
     }
 
     #[test]
-    fn welcome_renders_animation_on_first_draw() {
+    fn welcome_renders_logo_on_first_draw() {
         let widget = WelcomeWidget::new(
             /*is_logged_in*/ false,
             FrameRequester::test_dummy(),
             /*animations_enabled*/ true,
         );
-        let area = Rect::new(0, 0, MIN_ANIMATION_WIDTH, MIN_ANIMATION_HEIGHT);
+        let area = Rect::new(0, 0, MIN_LOGO_WIDTH, MIN_LOGO_HEIGHT);
         let mut buf = Buffer::empty(area);
         let frame_lines = widget.animation.current_frame().lines().count() as u16;
         (&widget).render(area, &mut buf);
@@ -150,13 +154,13 @@ mod tests {
     }
 
     #[test]
-    fn welcome_skips_animation_below_height_breakpoint() {
+    fn welcome_skips_logo_below_height_breakpoint() {
         let widget = WelcomeWidget::new(
             /*is_logged_in*/ false,
             FrameRequester::test_dummy(),
             /*animations_enabled*/ true,
         );
-        let area = Rect::new(0, 0, MIN_ANIMATION_WIDTH, MIN_ANIMATION_HEIGHT - 1);
+        let area = Rect::new(0, 0, MIN_LOGO_WIDTH, MIN_LOGO_HEIGHT - 1);
         let mut buf = Buffer::empty(area);
         (&widget).render(area, &mut buf);
 
@@ -186,5 +190,22 @@ mod tests {
             before, after,
             "expected ctrl+. to switch welcome animation variant"
         );
+    }
+
+    #[test]
+    fn welcome_renders_snapshot_with_gc_logo() {
+        let widget = WelcomeWidget::new(
+            /*is_logged_in*/ false,
+            FrameRequester::test_dummy(),
+            /*animations_enabled*/ false,
+        );
+
+        let mut terminal =
+            Terminal::new(VT100Backend::new(/*width*/ 32, /*height*/ 8)).expect("terminal");
+        terminal
+            .draw(|f| (&widget).render_ref(f.area(), f.buffer_mut()))
+            .expect("draw");
+
+        insta::assert_snapshot!(terminal.backend());
     }
 }

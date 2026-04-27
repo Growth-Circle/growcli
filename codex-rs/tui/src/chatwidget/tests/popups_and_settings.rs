@@ -2012,6 +2012,48 @@ async fn model_picker_hides_show_in_picker_false_models_from_cache() {
 }
 
 #[tokio::test]
+async fn all_models_picker_dismisses_for_model_without_reasoning_options() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("current-model")).await;
+    chat.thread_id = Some(ThreadId::new());
+    let preset = ModelPreset {
+        id: "model-with-empty-reasoning".to_string(),
+        model: "model-with-empty-reasoning".to_string(),
+        display_name: "model-with-empty-reasoning".to_string(),
+        description: "No explicit reasoning choices from provider".to_string(),
+        default_reasoning_effort: ReasoningEffortConfig::Medium,
+        supported_reasoning_efforts: Vec::new(),
+        supports_personality: false,
+        additional_speed_tiers: Vec::new(),
+        is_default: false,
+        upgrade: None,
+        show_in_picker: true,
+        availability_nux: None,
+        supported_in_api: true,
+        input_modalities: default_input_modalities(),
+    };
+
+    chat.open_all_models_popup(vec![preset]);
+    assert!(render_bottom_popup(&chat, /*width*/ 80).contains("Select Model and Effort"));
+
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+
+    assert!(
+        !render_bottom_popup(&chat, /*width*/ 80).contains("Select Model and Effort"),
+        "expected all-models popup to close when reasoning selection is skipped"
+    );
+    assert!(
+        std::iter::from_fn(|| rx.try_recv().ok()).any(|event| {
+            matches!(
+                event,
+                AppEvent::OpenReasoningPopup { model }
+                    if model.model == "model-with-empty-reasoning"
+            )
+        }),
+        "expected reasoning popup event for selected model"
+    );
+}
+
+#[tokio::test]
 async fn server_overloaded_error_does_not_switch_models() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(Some("gpt-5.3-codex")).await;
     chat.set_model("gpt-5.3-codex");

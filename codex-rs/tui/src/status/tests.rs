@@ -11,6 +11,8 @@ use crate::test_support::test_path_buf;
 use chrono::Duration as ChronoDuration;
 use chrono::TimeZone;
 use chrono::Utc;
+use codex_model_provider_info::ModelProviderInfo;
+use codex_model_provider_info::OPENAI_PROVIDER_ID;
 use codex_protocol::ThreadId;
 use codex_protocol::config_types::ReasoningSummary;
 use codex_protocol::openai_models::ReasoningEffort;
@@ -27,11 +29,14 @@ use ratatui::prelude::*;
 use tempfile::TempDir;
 
 async fn test_config(temp_home: &TempDir) -> Config {
-    ConfigBuilder::default()
+    let mut config = ConfigBuilder::default()
         .codex_home(temp_home.path().to_path_buf())
         .build()
         .await
-        .expect("load config")
+        .expect("load config");
+    config.model_provider_id = OPENAI_PROVIDER_ID.to_string();
+    config.model_provider = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+    config
 }
 
 fn test_status_account_display() -> Option<StatusAccountDisplay> {
@@ -65,6 +70,10 @@ fn sanitize_directory(lines: Vec<String>) -> Vec<String> {
     lines
         .into_iter()
         .map(|line| {
+            let line = line.replace(
+                &format!("Grow CLI (v{})", crate::version::CODEX_CLI_VERSION),
+                "Grow CLI (v0.0.0)",
+            );
             if let (Some(dir_pos), Some(pipe_idx)) = (line.find("Directory: "), line.rfind('│')) {
                 let prefix = &line[..dir_pos + "Directory: ".len()];
                 let suffix = &line[pipe_idx..];
