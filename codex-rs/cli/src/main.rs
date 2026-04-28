@@ -10,8 +10,10 @@ use codex_chatgpt::apply_command::run_apply_command;
 use codex_cli::LandlockCommand;
 use codex_cli::SeatbeltCommand;
 use codex_cli::WindowsCommand;
+use codex_cli::read_agent_identity_from_stdin;
 use codex_cli::read_api_key_from_stdin;
 use codex_cli::run_login_status;
+use codex_cli::run_login_with_agent_identity;
 use codex_cli::run_login_with_api_key;
 use codex_cli::run_login_with_chatgpt;
 use codex_cli::run_login_with_device_code;
@@ -132,6 +134,9 @@ enum Subcommand {
 
     /// Generate shell completion scripts.
     Completion(CompletionCommand),
+
+    /// Update Grow CLI to the latest version.
+    Update,
 
     /// Run commands within a Grow CLI-provided sandbox.
     Sandbox(SandboxArgs),
@@ -359,6 +364,12 @@ struct LoginCommand {
         help = "Read the API key from stdin (e.g. `printenv GC_API_KEY | growcli login --with-api-key`)"
     )]
     with_api_key: bool,
+
+    #[arg(
+        long = "with-agent-identity",
+        help = "Read the experimental Agent Identity token from stdin (e.g. `printenv CODEX_AGENT_IDENTITY | codex login --with-agent-identity`)"
+    )]
+    with_agent_identity: bool,
 
     #[arg(
         long = "api-key",
@@ -604,8 +615,27 @@ fn run_update_action(action: UpdateAction) -> anyhow::Result<()> {
     if !status.success() {
         anyhow::bail!("`{cmd_str}` failed with status {status}");
     }
-    println!("\n🎉 Update ran successfully! Please restart Codex.");
+    println!("\n🎉 Update ran successfully! Please restart Grow CLI.");
     Ok(())
+}
+
+fn run_update_command() -> anyhow::Result<()> {
+    #[cfg(debug_assertions)]
+    {
+        anyhow::bail!(
+            "`codex update` is not available in debug builds. Install a release build of Codex to use this command."
+        );
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        let Some(action) = codex_tui::get_update_action() else {
+            anyhow::bail!(
+                "Could not detect the Codex installation method. Please update manually: https://developers.openai.com/codex/cli/"
+            );
+        };
+        run_update_action(action)
+    }
 }
 
 fn run_execpolicycheck(cmd: ExecPolicyCheckCommand) -> anyhow::Result<()> {
@@ -823,7 +853,7 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
                     codex_app_server::run_main_with_transport(
                         arg0_paths.clone(),
                         root_config_overrides,
-                        codex_core::config_loader::LoaderOverrides::default(),
+                        codex_config::LoaderOverrides::default(),
                         analytics_default_enabled,
                         transport,
                         codex_protocol::protocol::SessionSource::VSCode,
@@ -941,7 +971,12 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
                     run_login_status(login_cli.config_overrides).await;
                 }
                 None => {
-                    if login_cli.use_device_code {
+                    if login_cli.with_api_key && login_cli.with_agent_identity {
+                        eprintln!(
+                            "Choose one login credential source: --with-api-key or --with-agent-identity."
+                        );
+                        std::process::exit(1);
+                    } else if login_cli.use_device_code {
                         run_login_with_device_code(
                             login_cli.config_overrides,
                             login_cli.issuer_base_url,
@@ -956,6 +991,10 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
                     } else if login_cli.with_api_key {
                         let api_key = read_api_key_from_stdin();
                         run_login_with_api_key(login_cli.config_overrides, api_key).await;
+                    } else if login_cli.with_agent_identity {
+                        let agent_identity = read_agent_identity_from_stdin();
+                        run_login_with_agent_identity(login_cli.config_overrides, agent_identity)
+                            .await;
                     } else {
                         run_login_with_chatgpt(login_cli.config_overrides).await;
                     }
@@ -981,6 +1020,14 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
                 "completion",
             )?;
             print_completion(completion_cli);
+        }
+        Some(Subcommand::Update) => {
+            reject_remote_mode_for_subcommand(
+                root_remote.as_deref(),
+                root_remote_auth_token_env.as_deref(),
+                "update",
+            )?;
+            run_update_command()?;
         }
         Some(Subcommand::Cloud(mut cloud_cli)) => {
             reject_remote_mode_for_subcommand(
@@ -1368,7 +1415,7 @@ async fn run_debug_models_command(
             .map_err(anyhow::Error::msg)?;
         let config = Config::load_with_cli_overrides(cli_overrides).await?;
         let auth_manager =
-            AuthManager::shared_from_config(&config, /*enable_codex_api_key_env*/ true);
+            AuthManager::shared_from_config(&config, /*enable_codex_api_key_env*/ true).await;
         let models_manager =
             build_models_manager(&config, auth_manager, CollaborationModesConfig::default());
         models_manager
@@ -1535,7 +1582,7 @@ async fn run_interactive_tui(
     codex_tui::run_main(
         interactive,
         arg0_paths,
-        codex_core::config_loader::LoaderOverrides::default(),
+        codex_config::LoaderOverrides::default(),
         normalized_remote,
         remote_auth_token,
     )
@@ -1872,6 +1919,12 @@ mod tests {
                 .expect("parse");
 
         assert!(matches!(cli.subcommand, Some(Subcommand::Plugin(_))));
+    }
+
+    #[test]
+    fn update_parses_as_update_subcommand() {
+        let cli = MultitoolCli::try_parse_from(["codex", "update"]).expect("parse");
+        assert!(matches!(cli.subcommand, Some(Subcommand::Update)));
     }
 
     #[test]

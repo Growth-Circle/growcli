@@ -524,7 +524,7 @@ async fn augment_mcp_tool_request_meta_with_sandbox_state(
 
     let sandbox_state = serde_json::to_value(SandboxState {
         permission_profile: Some(turn_context.permission_profile()),
-        sandbox_policy: turn_context.sandbox_policy.get().clone(),
+        sandbox_policy: turn_context.sandbox_policy(),
         codex_linux_sandbox_exe: turn_context.codex_linux_sandbox_exe.clone(),
         sandbox_cwd: turn_context.cwd.to_path_buf(),
         use_legacy_landlock: turn_context.features.use_legacy_landlock(),
@@ -830,7 +830,7 @@ async fn maybe_request_mcp_tool_approval(
 ) -> Option<McpToolApprovalDecision> {
     if mcp_permission_prompt_is_auto_approved(
         turn_context.approval_policy.value(),
-        turn_context.sandbox_policy.get(),
+        &turn_context.permission_profile(),
     ) {
         return None;
     }
@@ -1194,11 +1194,21 @@ pub(crate) async fn lookup_mcp_tool_metadata(
             .and_then(|meta| meta.get(MCP_TOOL_CODEX_APPS_META_KEY))
             .and_then(serde_json::Value::as_object)
             .cloned(),
-        openai_file_input_params: Some(declared_openai_file_input_param_names(
+        // Disallow custom MCPs from uploading files via fileParams.
+        openai_file_input_params: openai_file_input_params_for_server(
+            server,
             tool_info.tool.meta.as_deref(),
-        ))
-        .filter(|params| !params.is_empty()),
+        ),
     })
+}
+
+fn openai_file_input_params_for_server(
+    server: &str,
+    meta: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> Option<Vec<String>> {
+    (server == CODEX_APPS_MCP_SERVER_NAME)
+        .then_some(declared_openai_file_input_param_names(meta))
+        .filter(|params| !params.is_empty())
 }
 
 fn get_mcp_app_resource_uri(
