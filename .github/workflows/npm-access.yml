@@ -30,6 +30,13 @@ jobs:
 
           npm whoami
           npm access list packages @growthcircle --json || true
-          npm access set status=public @growthcircle/growcli
-          npm access get status @growthcircle/growcli
+          for pkg in \
+            @growthcircle/growcli \
+            @growthcircle/growcli-linux-x64 \
+            @growthcircle/growcli-darwin-x64 \
+            @growthcircle/growcli-darwin-arm64 \
+            @growthcircle/growcli-win32-x64; do
+            npm access set status=public "${pkg}" 2>/dev/null || true
+            npm access get status "${pkg}" 2>/dev/null || echo "${pkg}: not yet published"
+          done
           npm view @growthcircle/growcli version dist-tags.latest --json

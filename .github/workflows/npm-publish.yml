@@ -163,6 +163,8 @@ jobs:
       - if: ${{ endsWith(matrix.cargo_target, '-unknown-linux-musl') }}
         name: Install Zig
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         with:
           version: 0.14.0
 
@@ -245,7 +247,6 @@ jobs:
           BINARY_NAME: ${{ matrix.binary_name }}
         run: |
           set -euo pipefail
-          platform_version="${VERSION}-${PACKAGE_TAG}"
           runner_temp="${RUNNER_TEMP}"
           if command -v cygpath >/dev/null 2>&1; then
             runner_temp="$(cygpath -u "${RUNNER_TEMP}")"
@@ -267,8 +268,8 @@ jobs:
 
           cat > "${stage}/package.json" <<EOF
           {
-            "name": "@growthcircle/growcli",
-            "version": "${platform_version}",
+            "name": "@growthcircle/growcli-${PACKAGE_TAG}",
+            "version": "${VERSION}",
             "description": "Native Grow CLI binary for ${PACKAGE_TAG}",
             "license": "Apache-2.0",
             "os": ["${PACKAGE_OS}"],
@@ -303,7 +304,7 @@ jobs:
           tarball="$(ls dist/growthcircle-growcli-*.tgz | head -n 1)"
           tarball="$(node -e 'console.log(require("path").resolve(process.argv[1]))' "${tarball}")"
           set +e
-          publish_output="$(npm publish "${tarball}" --access public --tag "${PACKAGE_TAG}" 2>&1)"
+          publish_output="$(npm publish "${tarball}" --access public --tag latest 2>&1)"
           publish_status=$?
           set -e
 
@@ -367,10 +368,10 @@ jobs:
               "README.md"
             ],
             "optionalDependencies": {
-              "@growthcircle/growcli-linux-x64": "npm:@growthcircle/growcli@${VERSION}-linux-x64",
-              "@growthcircle/growcli-darwin-x64": "npm:@growthcircle/growcli@${VERSION}-darwin-x64",
-              "@growthcircle/growcli-darwin-arm64": "npm:@growthcircle/growcli@${VERSION}-darwin-arm64",
-              "@growthcircle/growcli-win32-x64": "npm:@growthcircle/growcli@${VERSION}-win32-x64"
+              "@growthcircle/growcli-linux-x64": "${VERSION}",
+              "@growthcircle/growcli-darwin-x64": "${VERSION}",
+              "@growthcircle/growcli-darwin-arm64": "${VERSION}",
+              "@growthcircle/growcli-win32-x64": "${VERSION}"
             },
             "repository": {
               "type": "git",
@@ -446,20 +447,26 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ needs.resolve-publish-settings.outputs.version }}
+          PACKAGE_TAG: ${{ matrix.package_tag }}
         run: |
           set -euo pipefail
-          for attempt in {1..12}; do
-            if npm view "@growthcircle/growcli@${VERSION}" version >/dev/null 2>&1; then
-              break
-            fi
-            if [[ "${attempt}" -eq 12 ]]; then
-              echo "@growthcircle/growcli@${VERSION} is not visible in npm yet"
-              exit 1
-            fi
-            echo "Waiting for @growthcircle/growcli@${VERSION} to propagate to npm (attempt ${attempt}/12)"
-            sleep 10
+          # Wait for both the root and native packages to propagate to npm
+          for pkg in "@growthcircle/growcli@${VERSION}" "@growthcircle/growcli-${PACKAGE_TAG}@${VERSION}"; do
+            for attempt in {1..12}; do
+              if npm view "${pkg}" version >/dev/null 2>&1; then
+                echo "${pkg} is available"
+                break
+              fi
+              if [[ "${attempt}" -eq 12 ]]; then
+                echo "${pkg} is not visible in npm yet"
+                exit 1
+              fi
+              echo "Waiting for ${pkg} to propagate to npm (attempt ${attempt}/12)"
+              sleep 10
+            done
           done
-          npm exec --yes --package "@growthcircle/growcli@${VERSION}" -- growcli --version
+          npm install -g "@growthcircle/growcli@${VERSION}"
+          growcli --version
 
       - if: ${{ matrix.package_tag == 'linux-x64' }}
         name: Verify on Debian 12
@@ -469,4 +476,4 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm node:22-bookworm bash -lc \
-            "npm exec --yes --package '@growthcircle/growcli@${VERSION}' -- growcli --version"
+            "npm install -g '@growthcircle/growcli@${VERSION}' && growcli --version"
