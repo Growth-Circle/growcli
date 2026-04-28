@@ -204,9 +204,7 @@ impl WidgetRef for &UpdatePromptScreen {
         column.push(
             Line::from(vec![
                 "Release notes: ".dim(),
-                "https://github.com/Growth-Circle/growcli/releases/latest"
-                    .dim()
-                    .underlined(),
+                codex_branding::RELEASE_URL.dim().underlined(),
             ])
             .inset(Insets::tlbr(0, 2, 0, 0)),
         );

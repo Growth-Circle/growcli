@@ -7,7 +7,7 @@ use super::X_CODEX_PARENT_THREAD_ID_HEADER;
 use super::X_CODEX_TURN_METADATA_HEADER;
 use super::X_CODEX_WINDOW_ID_HEADER;
 use super::X_OPENAI_SUBAGENT_HEADER;
-use super::create_tools_json_for_provider;
+use crate::growthcircle_compat::create_tools_json_for_provider;
 use codex_api::ApiError;
 use codex_api::Provider as ApiProvider;
 use codex_api::ResponseEvent;

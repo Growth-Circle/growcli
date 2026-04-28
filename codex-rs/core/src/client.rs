@@ -83,7 +83,6 @@ use codex_protocol::protocol::W3cTraceContext;
 use codex_rollout_trace::CompactionTraceContext;
 use codex_rollout_trace::InferenceTraceAttempt;
 use codex_rollout_trace::InferenceTraceContext;
-use codex_tools::create_tools_json_for_responses_api;
 use eventsource_stream::Event;
 use eventsource_stream::EventStreamError;
 use futures::StreamExt;
@@ -91,7 +90,6 @@ use http::HeaderMap as ApiHeaderMap;
 use http::HeaderValue;
 use http::StatusCode as HttpStatusCode;
 use reqwest::StatusCode;
-use serde_json::Value;
 use std::time::Duration;
 use std::time::Instant;
 use tokio::sync::mpsc;
@@ -145,44 +143,7 @@ const MEMORIES_SUMMARIZE_ENDPOINT: &str = "/memories/trace_summarize";
 pub(crate) const WEBSOCKET_CONNECT_TIMEOUT: Duration =
     Duration::from_millis(DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS);
 
-fn provider_uses_growthcircle_compat(provider: &ApiProvider) -> bool {
-    provider.name.eq_ignore_ascii_case("growthcircle")
-        || provider.base_url.contains("ai.growthcircle.id")
-}
-
-fn create_tools_json_for_provider(
-    provider: &ApiProvider,
-    tools: &[codex_tools::ToolSpec],
-) -> std::result::Result<Vec<Value>, serde_json::Error> {
-    let tools = create_tools_json_for_responses_api(tools)?;
-
-    if !provider_uses_growthcircle_compat(provider) {
-        return Ok(tools);
-    }
-
-    Ok(tools
-        .into_iter()
-        .filter(|tool| {
-            let has_name = tool
-                .get("name")
-                .and_then(Value::as_str)
-                .is_some_and(|name| !name.trim().is_empty());
-            if has_name {
-                return true;
-            }
-
-            let tool_type = tool
-                .get("type")
-                .and_then(Value::as_str)
-                .unwrap_or("<unknown>");
-            warn!(
-                tool_type,
-                "dropping unnamed tool for GrowthCircle Responses compatibility"
-            );
-            false
-        })
-        .collect())
-}
+use crate::growthcircle_compat::create_tools_json_for_provider;
 
 /// Session-scoped state shared by all [`ModelClient`] clones.
 ///

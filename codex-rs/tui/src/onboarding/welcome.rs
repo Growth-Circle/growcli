@@ -96,7 +96,7 @@ impl WidgetRef for &WelcomeWidget {
         lines.push(Line::from(vec![
             "  ".into(),
             "Welcome to ".into(),
-            "Grow CLI".bold(),
+            codex_branding::APP_NAME.bold(),
         ]));
 
         Paragraph::new(lines)

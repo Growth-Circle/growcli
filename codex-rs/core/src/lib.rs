@@ -10,6 +10,7 @@ mod apps;
 mod arc_monitor;
 mod client;
 mod client_common;
+mod growthcircle_compat;
 mod realtime_context;
 mod realtime_conversation;
 mod realtime_prompt;

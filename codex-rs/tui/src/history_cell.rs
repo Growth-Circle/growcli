@@ -582,9 +582,7 @@ impl HistoryCell for UpdateAvailableHistoryCell {
         } else {
             line![
                 "See ",
-                "https://github.com/Growth-Circle/growcli"
-                    .cyan()
-                    .underlined(),
+                codex_branding::REPO_URL.cyan().underlined(),
                 " for installation options."
             ]
         };
@@ -1452,7 +1450,7 @@ impl HistoryCell for SessionHeaderHistoryCell {
         // Title line rendered inside the box: ">_ Grow CLI (vX)"
         let title_spans: Vec<Span<'static>> = vec![
             Span::from(">_ ").dim(),
-            Span::from("Grow CLI").bold(),
+            Span::from(codex_branding::APP_NAME).bold(),
             Span::from(" ").dim(),
             Span::from(format!("(v{})", self.version)).dim(),
         ];

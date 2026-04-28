@@ -1,0 +1,86 @@
+name: upstream-sync
+
+on:
+  schedule:
+    - cron: "0 3 * * 1" # every Monday at 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: Sync upstream
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/openai/codex.git 2>/dev/null || true
+          git fetch upstream main --quiet
+
+      - name: Attempt merge
+        id: merge
+        run: |
+          set -euo pipefail
+          behind="$(git rev-list HEAD..upstream/main --count)"
+          if [[ "${behind}" -eq 0 ]]; then
+            echo "Already up to date with upstream."
+            echo "status=up-to-date" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Behind upstream by ${behind} commits."
+
+          if git merge upstream/main --no-edit; then
+            echo "status=merged" >> "$GITHUB_OUTPUT"
+            echo "behind=${behind}" >> "$GITHUB_OUTPUT"
+          else
+            git merge --abort
+            echo "status=conflict" >> "$GITHUB_OUTPUT"
+            echo "behind=${behind}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push clean merge
+        if: steps.merge.outputs.status == 'merged'
+        run: git push origin main
+
+      - name: Create PR for conflicts
+        if: steps.merge.outputs.status == 'conflict'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BEHIND: ${{ steps.merge.outputs.behind }}
+        run: |
+          set -euo pipefail
+          branch="upstream-sync/$(date +%Y%m%d)"
+          git checkout -b "${branch}"
+          git merge upstream/main --no-edit || true
+
+          # Stage conflict markers so the PR shows what needs resolving
+          git add -A
+          git commit --no-edit -m "wip: upstream sync with conflicts (${BEHIND} commits behind)" || true
+          git push -u origin "${branch}"
+
+          gh pr create \
+            --title "Upstream sync: ${BEHIND} commits behind (conflicts)" \
+            --body "Automatic upstream sync found merge conflicts.
+
+          **${BEHIND} commits** from [openai/codex](https://github.com/openai/codex) need to be merged.
+
+          Resolve conflicts, then merge this PR.
+
+          Conflict-prone areas (check these first):
+          - \`codex-rs/core/src/config/mod.rs\`
+          - \`codex-rs/tui/src/chatwidget.rs\`
+          - \`codex-rs/cli/src/main.rs\`
+          - \`codex-rs/cli/src/login.rs\`" \
+            --label "upstream-sync"
