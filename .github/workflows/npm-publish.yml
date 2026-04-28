@@ -142,6 +142,14 @@ jobs:
           scope: "@growthcircle"
 
       - if: ${{ endsWith(matrix.cargo_target, '-unknown-linux-musl') }}
+        name: Install UBSan runtime (musl)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libubsan1
+
+      - if: ${{ endsWith(matrix.cargo_target, '-unknown-linux-musl') }}
         name: Use hermetic Cargo home (musl)
         shell: bash
         run: |
@@ -164,6 +172,29 @@ jobs:
         env:
           TARGET: ${{ matrix.cargo_target }}
         run: bash "${GITHUB_WORKSPACE}/.github/scripts/install-musl-build-tools.sh"
+
+      - if: ${{ endsWith(matrix.cargo_target, '-unknown-linux-musl') }}
+        name: Configure rustc UBSan wrapper (musl host)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ubsan=""
+          if command -v ldconfig >/dev/null 2>&1; then
+            ubsan="$(ldconfig -p | grep -m1 'libubsan\.so\.1' | sed -E 's/.*=> (.*)$/\1/')"
+          fi
+          wrapper_root="${RUNNER_TEMP:-/tmp}"
+          wrapper="${wrapper_root}/rustc-ubsan-wrapper"
+          cat > "${wrapper}" <<EOF
+          #!/usr/bin/env bash
+          set -euo pipefail
+          if [[ -n "${ubsan}" ]]; then
+            export LD_PRELOAD="${ubsan}\${LD_PRELOAD:+:\${LD_PRELOAD}}"
+          fi
+          exec "\$1" "\${@:2}"
+          EOF
+          chmod +x "${wrapper}"
+          echo "RUSTC_WRAPPER=${wrapper}" >> "$GITHUB_ENV"
+          echo "RUSTC_WORKSPACE_WRAPPER=" >> "$GITHUB_ENV"
 
       - if: ${{ endsWith(matrix.cargo_target, '-unknown-linux-musl') }}
         name: Clear sanitizer flags (musl)
