@@ -1826,7 +1826,6 @@ impl CodexMessageProcessor {
         )
         .await;
 
-    async fn send_login_success_notifications(&self, login_id: Option<Uuid>) {
         let payload_login_completed = AccountLoginCompletedNotification {
             login_id: login_id.map(|id| id.to_string()),
             success: true,
@@ -4495,8 +4494,6 @@ impl CodexMessageProcessor {
                 let active_permission_profile = thread_response_active_permission_profile(
                     config_snapshot.active_permission_profile,
                 );
-                let permission_profile =
-                    thread_response_permission_profile(config_snapshot.permission_profile.clone());
 
                 let response = ThreadResumeResponse {
                     thread,
@@ -9683,20 +9680,6 @@ fn apply_permission_profile_selection_to_config_overrides(
                 }
             },
         ));
-}
-
-fn thread_response_sandbox_policy(
-    permission_profile: &codex_protocol::models::PermissionProfile,
-    cwd: &Path,
-) -> codex_app_server_protocol::SandboxPolicy {
-    let file_system_policy = permission_profile.file_system_sandbox_policy();
-    let sandbox_policy = codex_sandboxing::compatibility_sandbox_policy_for_permission_profile(
-        permission_profile,
-        &file_system_policy,
-        permission_profile.network_sandbox_policy(),
-        cwd,
-    );
-    sandbox_policy.into()
 }
 
 fn thread_response_sandbox_policy(

@@ -24,6 +24,7 @@ use codex_app_server_protocol::PermissionProfileFileSystemPermissions;
 use codex_app_server_protocol::PermissionProfileNetworkPermissions;
 use codex_app_server_protocol::RateLimitSnapshot;
 use codex_app_server_protocol::RateLimitWindow;
+use codex_model_provider_info::GROWTHCIRCLE_PROVIDER_ID;
 use codex_model_provider_info::ModelProviderAwsAuthInfo;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_protocol::ThreadId;

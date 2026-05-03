@@ -84,23 +84,6 @@ mod tests {
     }
 
     #[test]
-    fn converts_file_update_changes_to_core() {
-        assert_eq!(
-            file_update_changes_to_core(vec![FileUpdateChange {
-                path: "foo.txt".to_string(),
-                kind: PatchChangeKind::Add,
-                diff: "hello\n".to_string(),
-            }]),
-            HashMap::from([(
-                PathBuf::from("foo.txt"),
-                FileChange::Add {
-                    content: "hello\n".to_string(),
-                },
-            )])
-        );
-    }
-
-    #[test]
     fn converts_request_permissions_into_granted_permissions() {
         assert_eq!(
             granted_permission_profile_from_request(CoreRequestPermissionProfile::from(

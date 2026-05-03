@@ -1750,7 +1750,7 @@ dependencies = [
 
 [[package]]
 name = "codex-agent-graph-store"
-version = "0.0.0"
+version = "0.1.3"
 dependencies = [
  "async-trait",
  "codex-protocol",
@@ -2001,7 +2001,7 @@ dependencies = [
 
 [[package]]
 name = "codex-app-server-transport"
-version = "0.0.0"
+version = "0.1.3"
 dependencies = [
  "anyhow",
  "axum",
@@ -2523,7 +2523,7 @@ dependencies = [
 
 [[package]]
 name = "codex-core-api"
-version = "0.0.0"
+version = "0.1.3"
 dependencies = [
  "codex-analytics",
  "codex-app-server-protocol",
@@ -2762,7 +2762,7 @@ dependencies = [
 
 [[package]]
 name = "codex-external-agent-migration"
-version = "0.0.0"
+version = "0.1.3"
 dependencies = [
  "codex-hooks",
  "pretty_assertions",
@@ -2774,7 +2774,7 @@ dependencies = [
 
 [[package]]
 name = "codex-external-agent-sessions"
-version = "0.0.0"
+version = "0.1.3"
 dependencies = [
  "chrono",
  "codex-app-server-protocol",
@@ -2830,7 +2830,7 @@ dependencies = [
 
 [[package]]
 name = "codex-file-system"
-version = "0.0.0"
+version = "0.1.3"
 dependencies = [
  "async-trait",
  "codex-protocol",
@@ -3044,7 +3044,7 @@ dependencies = [
 
 [[package]]
 name = "codex-memories-read"
-version = "0.0.0"
+version = "0.1.3"
 dependencies = [
  "codex-protocol",
  "codex-shell-command",
@@ -3058,7 +3058,7 @@ dependencies = [
 
 [[package]]
 name = "codex-memories-write"
-version = "0.0.0"
+version = "0.1.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3553,7 +3553,7 @@ dependencies = [
 
 [[package]]
 name = "codex-thread-manager-sample"
-version = "0.0.0"
+version = "0.1.3"
 dependencies = [
  "anyhow",
  "clap",

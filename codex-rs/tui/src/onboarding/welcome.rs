@@ -12,6 +12,7 @@ use ratatui::widgets::Wrap;
 use std::cell::Cell;
 
 use crate::ascii_animation::AsciiAnimation;
+use crate::frames::FRAMES_GC;
 use crate::key_hint::KeyBindingListExt;
 use crate::onboarding::keys;
 use crate::onboarding::onboarding_screen::KeyboardHandler;
@@ -90,7 +91,7 @@ impl WidgetRef for &WelcomeWidget {
             } else {
                 FRAMES_GC[0]
             };
-            lines.extend(frame.lines().map(|line| Line::from(line.cyan().bold())));
+            lines.extend(frame.lines().map(|line| Line::from(line).cyan().bold()));
             lines.push("".into());
         }
         lines.push(Line::from(vec![
@@ -120,7 +121,6 @@ mod tests {
     use crossterm::event::KeyCode;
     use crossterm::event::KeyModifiers;
     use pretty_assertions::assert_eq;
-    use ratatui::Terminal;
     use ratatui::buffer::Buffer;
     use ratatui::layout::Rect;
 

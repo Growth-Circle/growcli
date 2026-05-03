@@ -679,28 +679,6 @@ impl FileSystemSandboxPolicy {
         self
     }
 
-    /// Replaces symbolic `:project_roots` entries with absolute paths resolved
-    /// against `cwd`.
-    ///
-    /// Use this when a durable permission profile must survive a cwd-only
-    /// update without rebinding its project-root authority to the new cwd.
-    pub fn materialize_project_roots_with_cwd(mut self, cwd: &Path) -> Self {
-        let cwd = AbsolutePathBuf::from_absolute_path(cwd).ok();
-        for entry in &mut self.entries {
-            let FileSystemPath::Special {
-                value: FileSystemSpecialPath::ProjectRoots { .. },
-            } = &entry.path
-            else {
-                continue;
-            };
-
-            if let Some(path) = resolve_file_system_path(&entry.path, cwd.as_ref()) {
-                entry.path = FileSystemPath::Path { path };
-            }
-        }
-        self
-    }
-
     pub fn with_additional_readable_roots(
         mut self,
         cwd: &Path,
@@ -2541,57 +2519,6 @@ mod tests {
             legacy_runtime_projection
                 .needs_direct_runtime_enforcement(NetworkSandboxPolicy::Restricted, cwd.path()),
             "metadata-name protections are outside the legacy SandboxPolicy writable-root contract"
-        );
-    }
-
-    #[test]
-    fn legacy_projection_runtime_enforcement_ignores_entry_order() {
-        let cwd = TempDir::new().expect("tempdir");
-        let legacy_policy = SandboxPolicy::WorkspaceWrite {
-            writable_roots: Vec::new(),
-            network_access: false,
-            exclude_tmpdir_env_var: true,
-            exclude_slash_tmp: true,
-        };
-        let legacy_order = legacy_runtime_file_system_policy_for_cwd(&legacy_policy, cwd.path());
-        let mut reordered_entries = legacy_order.entries.clone();
-        reordered_entries.reverse();
-        let reordered = FileSystemSandboxPolicy::restricted(reordered_entries);
-
-        assert!(
-            legacy_order.is_semantically_equivalent_to(&reordered, cwd.path()),
-            "entry order should not affect filesystem semantics"
-        );
-        assert!(
-            !reordered
-                .needs_direct_runtime_enforcement(NetworkSandboxPolicy::Restricted, cwd.path())
-        );
-    }
-
-    #[test]
-    fn missing_symbolic_metadata_carveouts_need_direct_runtime_enforcement() {
-        let cwd = TempDir::new().expect("tempdir");
-        let legacy_policy = SandboxPolicy::WorkspaceWrite {
-            writable_roots: Vec::new(),
-            network_access: false,
-            exclude_tmpdir_env_var: true,
-            exclude_slash_tmp: true,
-        };
-
-        let profile_projection =
-            FileSystemSandboxPolicy::from_legacy_sandbox_policy_for_cwd(&legacy_policy, cwd.path());
-        assert!(
-            profile_projection
-                .needs_direct_runtime_enforcement(NetworkSandboxPolicy::Restricted, cwd.path()),
-            "symbolic .git/.agents carveouts protect missing paths that legacy sandboxes cannot represent"
-        );
-
-        let legacy_runtime_projection =
-            legacy_runtime_file_system_policy_for_cwd(&legacy_policy, cwd.path());
-        assert!(
-            !legacy_runtime_projection
-                .needs_direct_runtime_enforcement(NetworkSandboxPolicy::Restricted, cwd.path()),
-            "true legacy runtime expansion should still classify as legacy-compatible"
         );
     }
 

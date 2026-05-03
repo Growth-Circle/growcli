@@ -176,23 +176,36 @@ impl ModelProvider for ConfiguredModelProvider {
 
     fn account_state(&self) -> ProviderAccountResult {
         let provider_env_api_key_present = self.info.api_key().ok().flatten().is_some();
+        let cached_auth = self.auth_manager.as_ref().and_then(|auth_manager| {
+            let auth = auth_manager.auth_cached()?;
+            if auth_manager.refresh_failure_for_auth(&auth).is_some() {
+                return None;
+            }
+            Some(auth)
+        });
         let account = if self.info.requires_openai_auth {
-            self.auth_manager
-                .as_ref()
-                .and_then(|auth_manager| {
-                    let auth = auth_manager.auth_cached()?;
-                    if auth_manager.refresh_failure_for_auth(&auth).is_some() {
-                        return None;
-                    }
-                    Some(auth)
-                })
-                .map(|auth| match &auth {
-                    CodexAuth::ApiKey(_) => Ok(ProviderAccount::ApiKey),
-                    CodexAuth::Chatgpt(_)
-                    | CodexAuth::ChatgptAuthTokens(_)
-                    | CodexAuth::AgentIdentity(_) => {
-                        let email = auth.get_account_email();
-                        let plan_type = auth.account_plan_type();
+            if self.info.is_growthcircle() {
+                if provider_env_api_key_present {
+                    Some(ProviderAccount::ApiKey)
+                } else {
+                    cached_auth.and_then(|auth| match auth {
+                        CodexAuth::ApiKey(_) => Some(ProviderAccount::ApiKey),
+                        CodexAuth::Chatgpt(_)
+                        | CodexAuth::ChatgptAuthTokens(_)
+                        | CodexAuth::AgentIdentity(_) => None,
+                    })
+                }
+            } else if provider_env_api_key_present {
+                Some(ProviderAccount::ApiKey)
+            } else {
+                cached_auth
+                    .map(|auth| match &auth {
+                        CodexAuth::ApiKey(_) => Ok(ProviderAccount::ApiKey),
+                        CodexAuth::Chatgpt(_)
+                        | CodexAuth::ChatgptAuthTokens(_)
+                        | CodexAuth::AgentIdentity(_) => {
+                            let email = auth.get_account_email();
+                            let plan_type = auth.account_plan_type();
 
                             match (email, plan_type) {
                                 (Some(email), Some(plan_type)) => {

@@ -20,11 +20,18 @@ use tokio::time::timeout;
 use tracing::debug;
 use tracing::trace;
 
+const REQUEST_ID_HEADER: &str = "x-request-id";
+
 pub fn spawn_chat_completions_stream(
     stream_response: StreamResponse,
     idle_timeout: Duration,
     telemetry: Option<Arc<dyn SseTelemetry>>,
 ) -> ResponseStream {
+    let upstream_request_id = stream_response
+        .headers
+        .get(REQUEST_ID_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(ToString::to_string);
     let (tx_event, rx_event) = mpsc::channel::<Result<ResponseEvent, ApiError>>(1600);
     tokio::spawn(process_chat_completions_sse(
         stream_response.bytes,
@@ -32,7 +39,10 @@ pub fn spawn_chat_completions_stream(
         idle_timeout,
         telemetry,
     ));
-    ResponseStream { rx_event }
+    ResponseStream {
+        rx_event,
+        upstream_request_id,
+    }
 }
 
 #[derive(Debug, Default)]

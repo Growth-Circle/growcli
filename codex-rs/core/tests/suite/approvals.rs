@@ -2,12 +2,6 @@
 
 use anyhow::Context;
 use anyhow::Result;
-use codex_config::ConfigLayerStack;
-use codex_config::ConfigLayerStackOrdering;
-use codex_config::NetworkConstraints;
-use codex_config::NetworkRequirementsToml;
-use codex_config::RequirementSource;
-use codex_config::Sourced;
 use codex_config::types::ApprovalsReviewer;
 use codex_core::CodexThread;
 use codex_core::config::Constrained;
