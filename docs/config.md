@@ -111,9 +111,21 @@ Use `$` in the composer to insert a ChatGPT connector; the popover lists accessi
 apps. The `/apps` command lists available and installed apps. Connected apps appear first
 and are labeled as connected; others are marked as can be installed.
 
+Codex stores "never show again" choices for tool suggestions in `config.toml`:
+
+```toml
+[tool_suggest]
+disabled_tools = [
+  { type = "plugin", id = "slack@openai-curated" },
+  { type = "connector", id = "connector_google_calendar" },
+]
+```
+
 ## Notify
 
-Codex can run a notification hook when the agent finishes a turn. See the configuration reference for the latest notification settings:
+`notify` is deprecated and will be removed in a future release. Existing configurations still work for compatibility, but new automation should use lifecycle hooks instead.
+
+Codex can run a legacy notification command when the agent finishes a turn. See the configuration reference for the latest notification settings:
 
 - https://developers.openai.com/codex/config-reference
 

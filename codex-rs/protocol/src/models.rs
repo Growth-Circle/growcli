@@ -317,6 +317,59 @@ pub enum PermissionProfile {
     External { network: NetworkSandboxPolicy },
 }
 
+/// Metadata for the named or implicit built-in permissions profile that
+/// produced the active `PermissionProfile`.
+///
+/// The runtime must honor `PermissionProfile`; this sidecar exists so clients
+/// can display stable profile identity without trying to reverse-engineer a
+/// name from the compiled permissions.
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize, JsonSchema, TS)]
+pub struct ActivePermissionProfile {
+    /// Profile identifier from `default_permissions` or the implicit built-in
+    /// default, such as `:workspace` or a user-defined `[permissions.<id>]`
+    /// profile.
+    pub id: String,
+
+    /// Optional parent profile identifier once permissions profiles support
+    /// inheritance. This is always `None` until that config feature exists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub extends: Option<String>,
+
+    /// Bounded user-requested modifications applied on top of the named
+    /// profile, if any.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modifications: Vec<ActivePermissionProfileModification>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Serialize, JsonSchema, TS)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[ts(tag = "type")]
+pub enum ActivePermissionProfileModification {
+    /// Additional concrete directory that should be writable.
+    #[serde(rename_all = "snake_case")]
+    #[ts(rename_all = "snake_case")]
+    AdditionalWritableRoot { path: AbsolutePathBuf },
+}
+
+impl ActivePermissionProfile {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            extends: None,
+            modifications: Vec::new(),
+        }
+    }
+
+    pub fn with_modifications(
+        mut self,
+        modifications: Vec<ActivePermissionProfileModification>,
+    ) -> Self {
+        self.modifications = modifications;
+        self
+    }
+}
+
 impl Default for PermissionProfile {
     fn default() -> Self {
         Self::Managed {
@@ -609,6 +662,9 @@ pub enum ResponseInputItem {
     Message {
         role: String,
         content: Vec<ContentItem>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        phase: Option<MessagePhase>,
     },
     FunctionCallOutput {
         call_id: String,
@@ -1034,11 +1090,15 @@ pub fn local_image_content_items_with_label_number(
 impl From<ResponseInputItem> for ResponseItem {
     fn from(item: ResponseInputItem) -> Self {
         match item {
-            ResponseInputItem::Message { role, content } => Self::Message {
+            ResponseInputItem::Message {
+                role,
+                content,
+                phase,
+            } => Self::Message {
                 role,
                 content,
                 id: None,
-                phase: None,
+                phase,
             },
             ResponseInputItem::FunctionCallOutput { call_id, output } => {
                 Self::FunctionCallOutput { call_id, output }
@@ -1176,6 +1236,7 @@ impl From<Vec<UserInput>> for ResponseInputItem {
                     UserInput::Skill { .. } | UserInput::Mention { .. } => Vec::new(), // Tool bodies are injected later in core
                 })
                 .collect::<Vec<ContentItem>>(),
+            phase: None,
         }
     }
 }
@@ -1580,6 +1641,29 @@ mod tests {
     use pretty_assertions::assert_eq;
     use std::path::PathBuf;
     use tempfile::tempdir;
+
+    #[test]
+    fn response_input_message_conversion_preserves_phase() {
+        let item = ResponseItem::from(ResponseInputItem::Message {
+            role: "assistant".to_string(),
+            content: vec![ContentItem::OutputText {
+                text: "still working".to_string(),
+            }],
+            phase: Some(MessagePhase::Commentary),
+        });
+
+        assert_eq!(
+            item,
+            ResponseItem::Message {
+                id: None,
+                role: "assistant".to_string(),
+                content: vec![ContentItem::OutputText {
+                    text: "still working".to_string(),
+                }],
+                phase: Some(MessagePhase::Commentary),
+            }
+        );
+    }
 
     #[test]
     fn sandbox_permissions_helpers_match_documented_semantics() {

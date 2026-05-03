@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 const TUI_CLIENT_NAME: &str = "codex-tui";
 pub const TOOL_SEARCH_TOOL_NAME: &str = "tool_search";
 pub const TOOL_SEARCH_DEFAULT_LIMIT: usize = 8;
-pub const TOOL_SUGGEST_TOOL_NAME: &str = "tool_suggest";
+pub const REQUEST_PLUGIN_INSTALL_TOOL_NAME: &str = "request_plugin_install";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ToolSearchSourceInfo {
@@ -111,7 +111,7 @@ impl From<DiscoverablePluginInfo> for DiscoverableTool {
     }
 }
 
-pub fn filter_tool_suggest_discoverable_tools_for_client(
+pub fn filter_request_plugin_install_discoverable_tools_for_client(
     discoverable_tools: Vec<DiscoverableTool>,
     app_server_client_name: Option<&str>,
 ) -> Vec<DiscoverableTool> {
@@ -136,7 +136,7 @@ pub struct DiscoverablePluginInfo {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ToolSuggestEntry {
+pub struct RequestPluginInstallEntry {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
@@ -271,12 +271,9 @@ pub fn collect_tool_search_source_infos<'a>(
         .collect()
 }
 
-pub fn create_tool_suggest_tool(discoverable_tools: &[ToolSuggestEntry]) -> ToolSpec {
-    let discoverable_tool_ids = discoverable_tools
-        .iter()
-        .map(|tool| tool.id.as_str())
-        .collect::<Vec<_>>()
-        .join(", ");
+pub fn create_request_plugin_install_tool(
+    discoverable_tools: &[RequestPluginInstallEntry],
+) -> ToolSpec {
     let properties = BTreeMap::from([
         (
             "tool_type".to_string(),
@@ -287,20 +284,16 @@ pub fn create_tool_suggest_tool(discoverable_tools: &[ToolSuggestEntry]) -> Tool
         ),
         (
             "action_type".to_string(),
-            JsonSchema::string(Some(
-                "Suggested action for the tool. Use \"install\" or \"enable\".".to_string(),
-            )),
+            JsonSchema::string(Some("Suggested action for the tool. Use \"install\".".to_string())),
         ),
         (
             "tool_id".to_string(),
-            JsonSchema::string(Some(format!(
-                "Connector or plugin id to suggest. Must be one of: {discoverable_tool_ids}."
-            ))),
+            JsonSchema::string(Some("Connector or plugin id to suggest.".to_string())),
         ),
         (
             "suggest_reason".to_string(),
             JsonSchema::string(Some(
-                "Concise one-line user-facing reason why this tool can help with the current request."
+                "Concise one-line user-facing reason why this plugin or connector can help with the current request."
                     .to_string(),
             )),
         ),
@@ -308,11 +301,11 @@ pub fn create_tool_suggest_tool(discoverable_tools: &[ToolSuggestEntry]) -> Tool
 
     let discoverable_tools = format_discoverable_tools(discoverable_tools);
     let description = format!(
-        "# Tool suggestion discovery\n\nSuggests a missing connector in an installed plugin, or in narrower cases a not installed but discoverable plugin, when the user clearly wants a capability that is not currently available in the active `tools` list.\n\nUse this ONLY when:\n- You've already tried to find a matching available tool for the user's request but couldn't find a good match. This includes `{TOOL_SEARCH_TOOL_NAME}` (if available) and other means.\n- For connectors/apps that are not installed but needed for an installed plugin, suggest to install them if the task requirements match precisely.\n- For plugins that are not installed but discoverable, only suggest discoverable and installable plugins when the user's intent very explicitly and unambiguously matches that plugin itself. Do not suggest a plugin just because one of its connectors or capabilities seems relevant.\n\nTool suggestions should only use the discoverable tools listed here. DO NOT explore or recommend tools that are not on this list.\n\nDiscoverable tools:\n{discoverable_tools}\n\nWorkflow:\n\n1. Ensure all possible means have been exhausted to find an existing available tool but none of them matches the request intent.\n2. Match the user's request against the discoverable tools list above. Apply the stricter explicit-and-unambiguous rule for *discoverable tools* like plugin install suggestions; *missing tools* like connector install suggestions continue to use the normal clear-fit standard.\n3. If one tool clearly fits, call `{TOOL_SUGGEST_TOOL_NAME}` with:\n   - `tool_type`: `connector` or `plugin`\n   - `action_type`: `install` or `enable`\n   - `tool_id`: exact id from the discoverable tools list above\n   - `suggest_reason`: concise one-line user-facing reason this tool can help with the current request\n4. After the suggestion flow completes:\n   - if the user finished the install or enable flow, continue by searching again or using the newly available tool\n   - if the user did not finish, continue without that tool, and don't suggest that tool again unless the user explicitly asks for it."
+        "# Request plugin/connector install\n\nUse this tool only to ask the user to install one known plugin or connector from the list below. The list contains known candidates that are not currently installed.\n\nUse this ONLY when all of the following are true:\n- The user explicitly asks to use a specific plugin or connector that is not already available in the current context or active `tools` list.\n- `{TOOL_SEARCH_TOOL_NAME}` is not available, or it has already been called and did not find or make the requested tool callable.\n- The plugin or connector is one of the known installable plugins or connectors listed below. Only ask to install plugins or connectors from this list.\n\nDo not use this tool for adjacent capabilities, broad recommendations, or tools that merely seem useful. Only use when the user explicitly asks to use that exact listed plugin or connector.\n\nKnown plugins/connectors available to install:\n{discoverable_tools}\n\nWorkflow:\n\n1. Check the current context and active `tools` list first. If current active tools aren't relevant and `{TOOL_SEARCH_TOOL_NAME}` is available, only call this tool after `{TOOL_SEARCH_TOOL_NAME}` has already been tried and found no relevant tool.\n2. Match the user's explicit request against the known plugin/connector list above. Only proceed when one listed plugin or connector exactly fits.\n3. If we found both connectors and plugins to install, use plugins first, only use connectors if the corresponding plugin is installed but the connector is not.\n4. If one plugin or connector clearly fits, call `{REQUEST_PLUGIN_INSTALL_TOOL_NAME}` with:\n   - `tool_type`: `connector` or `plugin`\n   - `action_type`: `install`\n   - `tool_id`: exact id from the known plugin/connector list above\n   - `suggest_reason`: concise one-line user-facing reason this plugin or connector can help with the current request\n5. After the request flow completes:\n   - if the user finished the install flow, continue by searching again or using the newly available plugin or connector\n   - if the user did not finish, continue without that plugin or connector, and don't request it again unless the user explicitly asks for it.\n\nIMPORTANT: DO NOT call this tool in parallel with other tools."
     );
 
     ToolSpec::Function(ResponsesApiTool {
-        name: TOOL_SUGGEST_TOOL_NAME.to_string(),
+        name: REQUEST_PLUGIN_INSTALL_TOOL_NAME.to_string(),
         description,
         strict: false,
         defer_loading: None,
@@ -330,13 +323,13 @@ pub fn create_tool_suggest_tool(discoverable_tools: &[ToolSuggestEntry]) -> Tool
     })
 }
 
-pub fn collect_tool_suggest_entries(
+pub fn collect_request_plugin_install_entries(
     discoverable_tools: &[DiscoverableTool],
-) -> Vec<ToolSuggestEntry> {
+) -> Vec<RequestPluginInstallEntry> {
     discoverable_tools
         .iter()
         .map(|tool| match tool {
-            DiscoverableTool::Connector(connector) => ToolSuggestEntry {
+            DiscoverableTool::Connector(connector) => RequestPluginInstallEntry {
                 id: connector.id.clone(),
                 name: connector.name.clone(),
                 description: connector.description.clone(),
@@ -345,7 +338,7 @@ pub fn collect_tool_suggest_entries(
                 mcp_server_names: Vec::new(),
                 app_connector_ids: Vec::new(),
             },
-            DiscoverableTool::Plugin(plugin) => ToolSuggestEntry {
+            DiscoverableTool::Plugin(plugin) => RequestPluginInstallEntry {
                 id: plugin.id.clone(),
                 name: plugin.name.clone(),
                 description: plugin.description.clone(),
@@ -358,7 +351,7 @@ pub fn collect_tool_suggest_entries(
         .collect()
 }
 
-fn format_discoverable_tools(discoverable_tools: &[ToolSuggestEntry]) -> String {
+fn format_discoverable_tools(discoverable_tools: &[RequestPluginInstallEntry]) -> String {
     let mut discoverable_tools = discoverable_tools.to_vec();
     discoverable_tools.sort_by(|left, right| {
         left.name
@@ -382,7 +375,7 @@ fn format_discoverable_tools(discoverable_tools: &[ToolSuggestEntry]) -> String 
         .join("\n")
 }
 
-fn tool_description_or_fallback(tool: &ToolSuggestEntry) -> String {
+fn tool_description_or_fallback(tool: &RequestPluginInstallEntry) -> String {
     if let Some(description) = tool
         .description
         .as_deref()
@@ -398,7 +391,7 @@ fn tool_description_or_fallback(tool: &ToolSuggestEntry) -> String {
     }
 }
 
-fn plugin_summary(tool: &ToolSuggestEntry) -> String {
+fn plugin_summary(tool: &RequestPluginInstallEntry) -> String {
     let mut details = Vec::new();
     if tool.has_skills {
         details.push("skills".to_string());

@@ -1,7 +1,5 @@
-use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use crossterm::event::KeyEventKind;
-use crossterm::event::KeyModifiers;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::prelude::Widget;
@@ -14,7 +12,8 @@ use ratatui::widgets::Wrap;
 use std::cell::Cell;
 
 use crate::ascii_animation::AsciiAnimation;
-use crate::frames::FRAMES_GC;
+use crate::key_hint::KeyBindingListExt;
+use crate::onboarding::keys;
 use crate::onboarding::onboarding_screen::KeyboardHandler;
 use crate::onboarding::onboarding_screen::StepStateProvider;
 use crate::tui::FrameRequester;
@@ -33,14 +32,15 @@ pub(crate) struct WelcomeWidget {
 }
 
 impl KeyboardHandler for WelcomeWidget {
+    /// Rotate the welcome animation when the fixed toggle shortcut fires.
+    ///
+    /// The key list includes compatibility variants for terminals that report
+    /// modifier bits differently.
     fn handle_key_event(&mut self, key_event: KeyEvent) {
         if !self.animations_enabled {
             return;
         }
-        if key_event.kind == KeyEventKind::Press
-            && key_event.code == KeyCode::Char('.')
-            && key_event.modifiers.contains(KeyModifiers::CONTROL)
-        {
+        if key_event.kind == KeyEventKind::Press && keys::TOGGLE_ANIMATION.is_pressed(key_event) {
             tracing::warn!("Welcome background to press '.'");
             let _ = self.animation.pick_random_variant();
         }
@@ -117,7 +117,8 @@ impl StepStateProvider for WelcomeWidget {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_backend::VT100Backend;
+    use crossterm::event::KeyCode;
+    use crossterm::event::KeyModifiers;
     use pretty_assertions::assert_eq;
     use ratatui::Terminal;
     use ratatui::buffer::Buffer;
@@ -193,19 +194,29 @@ mod tests {
     }
 
     #[test]
-    fn welcome_renders_snapshot_with_gc_logo() {
-        let widget = WelcomeWidget::new(
-            /*is_logged_in*/ false,
-            FrameRequester::test_dummy(),
-            /*animations_enabled*/ false,
+    fn ctrl_shift_dot_changes_animation_variant() {
+        let mut widget = WelcomeWidget {
+            is_logged_in: false,
+            animation: AsciiAnimation::with_variants(
+                FrameRequester::test_dummy(),
+                &VARIANTS,
+                /*variant_idx*/ 0,
+            ),
+            animations_enabled: true,
+            animations_suppressed: Cell::new(false),
+            layout_area: Cell::new(None),
+        };
+
+        let before = widget.animation.current_frame();
+        widget.handle_key_event(KeyEvent::new(
+            KeyCode::Char('.'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        ));
+        let after = widget.animation.current_frame();
+
+        assert_ne!(
+            before, after,
+            "expected ctrl+shift+. to switch welcome animation variant"
         );
-
-        let mut terminal =
-            Terminal::new(VT100Backend::new(/*width*/ 32, /*height*/ 8)).expect("terminal");
-        terminal
-            .draw(|f| (&widget).render_ref(f.area(), f.buffer_mut()))
-            .expect("draw");
-
-        insta::assert_snapshot!(terminal.backend());
     }
 }

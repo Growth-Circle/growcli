@@ -79,6 +79,7 @@ use codex_protocol::config_types::Verbosity as VerbosityConfig;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
+use codex_protocol::protocol::InternalSessionSource;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
 use codex_protocol::protocol::W3cTraceContext;
@@ -570,7 +571,7 @@ impl ModelClient {
         }
         if matches!(
             self.state.session_source,
-            SessionSource::SubAgent(SubAgentSource::MemoryConsolidation)
+            SessionSource::Internal(InternalSessionSource::MemoryConsolidation)
         ) {
             extra_headers.insert(
                 X_OPENAI_MEMGEN_REQUEST_HEADER,
@@ -1238,8 +1239,13 @@ impl ModelClientSession {
                 Err(ApiError::Transport(
                     unauthorized_transport @ TransportError::Http { status, .. },
                 )) if status == StatusCode::UNAUTHORIZED => {
-                    inference_trace_attempt
-                        .record_failed(&unauthorized_transport, /*output_items*/ &[]);
+                    let response_debug_context =
+                        extract_response_debug_context(&unauthorized_transport);
+                    inference_trace_attempt.record_failed(
+                        &unauthorized_transport,
+                        response_debug_context.request_id.as_deref(),
+                        /*output_items*/ &[],
+                    );
                     pending_retry = PendingUnauthorizedRetry::from_recovery(
                         handle_unauthorized(
                             unauthorized_transport,
@@ -1251,99 +1257,14 @@ impl ModelClientSession {
                     continue;
                 }
                 Err(err) => {
+                    let response_debug_context =
+                        extract_response_debug_context_from_api_error(&err);
                     let err = map_api_error(err);
-                    inference_trace_attempt.record_failed(&err, /*output_items*/ &[]);
-                    return Err(err);
-                }
-            }
-        }
-    }
-
-    /// Streams a turn via an OpenAI-compatible Chat Completions endpoint.
-    #[instrument(
-        name = "model_client.stream_chat_completions_api",
-        level = "info",
-        skip_all,
-        fields(
-            model = %model_info.slug,
-            wire_api = %self.client.state.provider.info().wire_api,
-            transport = "chat_completions_http",
-            http.method = "POST",
-            api.path = "chat/completions"
-        )
-    )]
-    async fn stream_chat_completions_api(
-        &self,
-        prompt: &Prompt,
-        model_info: &ModelInfo,
-        session_telemetry: &SessionTelemetry,
-        inference_trace: &InferenceTraceContext,
-    ) -> Result<ResponseStream> {
-        let auth_manager = self.client.state.provider.auth_manager();
-        let mut auth_recovery = auth_manager
-            .as_ref()
-            .map(AuthManager::unauthorized_recovery);
-        let mut pending_retry = PendingUnauthorizedRetry::default();
-        loop {
-            let client_setup = self.client.current_client_setup().await?;
-            let transport = ReqwestTransport::new(build_reqwest_client());
-            let request_auth_context = AuthRequestTelemetryContext::new(
-                client_setup.auth.as_ref().map(CodexAuth::auth_mode),
-                client_setup.api_auth.as_ref(),
-                pending_retry,
-            );
-            let (request_telemetry, sse_telemetry) = Self::build_streaming_telemetry(
-                session_telemetry,
-                request_auth_context,
-                RequestRouteTelemetry::for_endpoint(CHAT_COMPLETIONS_ENDPOINT),
-                self.client.state.auth_env_telemetry.clone(),
-            );
-            let request = build_chat_completions_request(prompt, model_info)?;
-            let inference_trace_attempt = inference_trace.start_attempt();
-            inference_trace_attempt.record_started(&request);
-            let client = ApiChatCompletionsClient::new(
-                transport,
-                client_setup.api_provider,
-                client_setup.api_auth,
-            )
-            .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
-            let stream_result = client
-                .stream_request(
-                    request,
-                    ApiChatCompletionsOptions {
-                        extra_headers: ApiHeaderMap::new(),
-                        compression: Compression::None,
-                    },
-                )
-                .await;
-
-            match stream_result {
-                Ok(stream) => {
-                    let (stream, _) = map_response_stream(
-                        stream,
-                        session_telemetry.clone(),
-                        inference_trace_attempt,
+                    inference_trace_attempt.record_failed(
+                        &err,
+                        response_debug_context.request_id.as_deref(),
+                        /*output_items*/ &[],
                     );
-                    return Ok(stream);
-                }
-                Err(ApiError::Transport(
-                    unauthorized_transport @ TransportError::Http { status, .. },
-                )) if status == StatusCode::UNAUTHORIZED => {
-                    inference_trace_attempt
-                        .record_failed(&unauthorized_transport, /*output_items*/ &[]);
-                    pending_retry = PendingUnauthorizedRetry::from_recovery(
-                        handle_unauthorized(
-                            unauthorized_transport,
-                            &mut auth_recovery,
-                            session_telemetry,
-                        )
-                        .await?,
-                    );
-                    continue;
-                }
-                Err(err) => {
-                    let err = map_api_error(err);
-                    inference_trace_attempt.record_failed(&err, /*output_items*/ &[]);
                     return Err(err);
                 }
             }
@@ -1469,8 +1390,14 @@ impl ModelClientSession {
                 .stream_request(ws_request, self.websocket_session.connection_reused())
                 .await
                 .map_err(|err| {
+                    let response_debug_context =
+                        extract_response_debug_context_from_api_error(&err);
                     let err = map_api_error(err);
-                    inference_trace_attempt.record_failed(&err, /*output_items*/ &[]);
+                    inference_trace_attempt.record_failed(
+                        &err,
+                        response_debug_context.request_id.as_deref(),
+                        /*output_items*/ &[],
+                    );
                     err
                 })?;
             let (stream, last_request_rx) = map_response_stream(
@@ -1701,15 +1628,23 @@ fn build_responses_headers(
 }
 
 fn subagent_header_value(session_source: &SessionSource) -> Option<String> {
-    let SessionSource::SubAgent(subagent_source) = session_source else {
-        return None;
-    };
-    match subagent_source {
-        SubAgentSource::Review => Some("review".to_string()),
-        SubAgentSource::Compact => Some("compact".to_string()),
-        SubAgentSource::MemoryConsolidation => Some("memory_consolidation".to_string()),
-        SubAgentSource::ThreadSpawn { .. } => Some("collab_spawn".to_string()),
-        SubAgentSource::Other(label) => Some(label.clone()),
+    match session_source {
+        SessionSource::SubAgent(subagent_source) => match subagent_source {
+            SubAgentSource::Review => Some("review".to_string()),
+            SubAgentSource::Compact => Some("compact".to_string()),
+            SubAgentSource::MemoryConsolidation => Some("memory_consolidation".to_string()),
+            SubAgentSource::ThreadSpawn { .. } => Some("collab_spawn".to_string()),
+            SubAgentSource::Other(label) => Some(label.clone()),
+        },
+        SessionSource::Internal(InternalSessionSource::MemoryConsolidation) => {
+            Some("memory_consolidation".to_string())
+        }
+        SessionSource::Cli
+        | SessionSource::VSCode
+        | SessionSource::Exec
+        | SessionSource::Mcp
+        | SessionSource::Custom(_)
+        | SessionSource::Unknown => None,
     }
 }
 
@@ -1723,6 +1658,7 @@ fn parent_thread_id_header_value(session_source: &SessionSource) -> Option<Strin
         | SessionSource::Exec
         | SessionSource::Mcp
         | SessionSource::Custom(_)
+        | SessionSource::Internal(_)
         | SessionSource::SubAgent(_)
         | SessionSource::Unknown => None,
     }
@@ -1731,7 +1667,29 @@ fn parent_thread_id_header_value(session_source: &SessionSource) -> Option<Strin
 const RESPONSE_STREAM_CHANNEL_CAPACITY: usize = 1600;
 const STREAM_DROPPED_REASON: &str = "response stream dropped before provider terminal event";
 
-fn map_response_stream<S>(
+fn map_response_stream(
+    api_stream: codex_api::ResponseStream,
+    session_telemetry: SessionTelemetry,
+    inference_trace_attempt: InferenceTraceAttempt,
+) -> (ResponseStream, oneshot::Receiver<LastResponse>) {
+    let codex_api::ResponseStream {
+        rx_event,
+        upstream_request_id,
+    } = api_stream;
+    let api_stream = codex_api::ResponseStream {
+        rx_event,
+        upstream_request_id: None,
+    };
+    map_response_events(
+        upstream_request_id,
+        api_stream,
+        session_telemetry,
+        inference_trace_attempt,
+    )
+}
+
+fn map_response_events<S>(
+    upstream_request_id: Option<String>,
     api_stream: S,
     session_telemetry: SessionTelemetry,
     inference_trace_attempt: InferenceTraceAttempt,
@@ -1753,10 +1711,15 @@ where
         let mut tx_last_response = Some(tx_last_response);
         let mut items_added: Vec<ResponseItem> = Vec::new();
         let mut api_stream = api_stream;
+        let upstream_request_id = upstream_request_id.as_deref();
         loop {
             let event = tokio::select! {
                 _ = consumer_dropped.cancelled() => {
-                    inference_trace_attempt.record_cancelled(STREAM_DROPPED_REASON, &items_added);
+                    inference_trace_attempt.record_cancelled(
+                        STREAM_DROPPED_REASON,
+                        upstream_request_id,
+                        &items_added,
+                    );
                     return;
                 }
                 event = api_stream.next() => event,
@@ -1772,8 +1735,11 @@ where
                         .await
                         .is_err()
                     {
-                        inference_trace_attempt
-                            .record_cancelled(STREAM_DROPPED_REASON, &items_added);
+                        inference_trace_attempt.record_cancelled(
+                            STREAM_DROPPED_REASON,
+                            upstream_request_id,
+                            &items_added,
+                        );
                         return;
                     }
                 }
@@ -1793,6 +1759,7 @@ where
                     }
                     inference_trace_attempt.record_completed(
                         &response_id,
+                        upstream_request_id,
                         &token_usage,
                         &items_added,
                     );
@@ -1816,14 +1783,25 @@ where
                 }
                 Ok(event) => {
                     if tx_event.send(Ok(event)).await.is_err() {
-                        inference_trace_attempt
-                            .record_cancelled(STREAM_DROPPED_REASON, &items_added);
+                        inference_trace_attempt.record_cancelled(
+                            STREAM_DROPPED_REASON,
+                            upstream_request_id,
+                            &items_added,
+                        );
                         return;
                     }
                 }
                 Err(err) => {
+                    let response_debug_context =
+                        extract_response_debug_context_from_api_error(&err);
+                    let upstream_request_id =
+                        upstream_request_id.or(response_debug_context.request_id.as_deref());
                     let mapped = map_api_error(err);
-                    inference_trace_attempt.record_failed(&mapped, &items_added);
+                    inference_trace_attempt.record_failed(
+                        &mapped,
+                        upstream_request_id,
+                        &items_added,
+                    );
                     if !logged_error {
                         session_telemetry.see_event_completed_failed(&mapped);
                         logged_error = true;
@@ -1834,8 +1812,11 @@ where
                 }
             }
         }
-        inference_trace_attempt
-            .record_failed("stream closed before response.completed", &items_added);
+        inference_trace_attempt.record_failed(
+            "stream closed before response.completed",
+            upstream_request_id,
+            &items_added,
+        );
     });
 
     (

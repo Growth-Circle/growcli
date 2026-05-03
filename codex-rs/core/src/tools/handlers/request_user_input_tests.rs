@@ -4,6 +4,7 @@ use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolPayload;
 use crate::turn_diff_tracker::TurnDiffTracker;
 use codex_protocol::ThreadId;
+use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -22,7 +23,7 @@ async fn multi_agent_v2_request_user_input_rejects_subagent_threads() {
     });
 
     let result = RequestUserInputHandler {
-        default_mode_request_user_input: true,
+        available_modes: Vec::new(),
     }
     .handle(ToolInvocation {
         session: Arc::new(session),

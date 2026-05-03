@@ -71,6 +71,7 @@ use codex_hooks::HookEvent;
 use codex_hooks::HookEventAfterAgent;
 use codex_hooks::HookPayload;
 use codex_hooks::HookResult;
+use codex_otel::LEGACY_NOTIFY_RUN_METRIC;
 use codex_protocol::config_types::ModeKind;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result as CodexResult;
@@ -96,7 +97,7 @@ use codex_protocol::protocol::TurnDiffEvent;
 use codex_protocol::protocol::WarningEvent;
 use codex_protocol::user_input::UserInput;
 use codex_tools::ToolName;
-use codex_tools::filter_tool_suggest_discoverable_tools_for_client;
+use codex_tools::filter_request_plugin_install_discoverable_tools_for_client;
 use codex_utils_stream_parser::AssistantTextChunk;
 use codex_utils_stream_parser::AssistantTextStreamParser;
 use codex_utils_stream_parser::ProposedPlanSegment;
@@ -170,7 +171,7 @@ pub(crate) async fn run_turn(
     let loaded_plugins = sess
         .services
         .plugins_manager
-        .plugins_for_config(&turn_context.config)
+        .plugins_for_config(&turn_context.config.plugins_config_input())
         .await;
     // Structured plugin:// mentions are resolved from the current session's
     // enabled plugins, then converted into turn-scoped guidance below.
@@ -336,7 +337,7 @@ pub(crate) async fn run_turn(
     record_additional_contexts(&sess, &turn_context, additional_contexts).await;
     if !input.is_empty() {
         // Track the previous-turn baseline from the regular user-turn path only so
-        // standalone tasks (compact/shell/review/undo) cannot suppress future
+        // standalone tasks (compact/shell/review) cannot suppress future
         // model/realtime injections.
         sess.set_previous_turn_settings(Some(PreviousTurnSettings {
             model: turn_context.model_info.slug.clone(),
@@ -520,7 +521,8 @@ pub(crate) async fn run_turn(
                         stop_hook_active,
                         last_assistant_message: last_agent_message.clone(),
                     };
-                    for run in sess.hooks().preview_stop(&stop_request) {
+                    let hooks = sess.hooks();
+                    for run in hooks.preview_stop(&stop_request) {
                         sess.send_event(
                             &turn_context,
                             EventMsg::HookStarted(codex_protocol::protocol::HookStartedEvent {
@@ -530,7 +532,7 @@ pub(crate) async fn run_turn(
                         )
                         .await;
                     }
-                    let stop_outcome = sess.hooks().run_stop(stop_request).await;
+                    let stop_outcome = hooks.run_stop(stop_request).await;
                     emit_hook_completed_events(&sess, &turn_context, stop_outcome.hook_events)
                         .await;
                     if stop_outcome.should_block {
@@ -574,6 +576,13 @@ pub(crate) async fn run_turn(
                             },
                         })
                         .await;
+                    if !hook_outcomes.is_empty() {
+                        turn_context.session_telemetry.counter(
+                            LEGACY_NOTIFY_RUN_METRIC,
+                            /*inc*/ 1,
+                            &[],
+                        );
+                    }
 
                     let mut abort_message = None;
                     for hook_outcome in hook_outcomes {
@@ -1123,7 +1132,7 @@ pub(crate) async fn built_tools(
     let loaded_plugins = sess
         .services
         .plugins_manager
-        .plugins_for_config(&turn_context.config)
+        .plugins_for_config(&turn_context.config.plugins_config_input())
         .await;
 
     let mut effective_explicitly_enabled_connectors = explicitly_enabled_connectors.clone();
@@ -1161,7 +1170,7 @@ pub(crate) async fn built_tools(
             )
             .await
             .map(|discoverable_tools| {
-                filter_tool_suggest_discoverable_tools_for_client(
+                filter_request_plugin_install_discoverable_tools_for_client(
                     discoverable_tools,
                     turn_context.app_server_client_name.as_deref(),
                 )
@@ -1442,11 +1451,8 @@ pub(super) fn realtime_text_for_event(msg: &EventMsg) -> Option<String> {
         | EventMsg::TurnComplete(_)
         | EventMsg::TokenCount(_)
         | EventMsg::UserMessage(_)
-        | EventMsg::AgentMessageDelta(_)
         | EventMsg::AgentReasoning(_)
-        | EventMsg::AgentReasoningDelta(_)
         | EventMsg::AgentReasoningRawContent(_)
-        | EventMsg::AgentReasoningRawContentDelta(_)
         | EventMsg::AgentReasoningSectionBreak(_)
         | EventMsg::SessionConfigured(_)
         | EventMsg::ThreadNameUpdated(_)
@@ -1464,9 +1470,9 @@ pub(super) fn realtime_text_for_event(msg: &EventMsg) -> Option<String> {
         | EventMsg::PatchApplyBegin(_)
         | EventMsg::PatchApplyUpdated(_)
         | EventMsg::PatchApplyEnd(_)
-        | EventMsg::ViewImageToolCall(_)
         | EventMsg::ImageGenerationBegin(_)
         | EventMsg::ImageGenerationEnd(_)
+        | EventMsg::ViewImageToolCall(_)
         | EventMsg::ExecApprovalRequest(_)
         | EventMsg::RequestPermissions(_)
         | EventMsg::RequestUserInput(_)
@@ -1476,9 +1482,6 @@ pub(super) fn realtime_text_for_event(msg: &EventMsg) -> Option<String> {
         | EventMsg::ElicitationRequest(_)
         | EventMsg::ApplyPatchApprovalRequest(_)
         | EventMsg::DeprecationNotice(_)
-        | EventMsg::BackgroundEvent(_)
-        | EventMsg::UndoStarted(_)
-        | EventMsg::UndoCompleted(_)
         | EventMsg::StreamError(_)
         | EventMsg::TurnDiff(_)
         | EventMsg::GetHistoryEntryResponse(_)
@@ -1864,6 +1867,11 @@ async fn try_run_sampling_request(
             otel.name = field::Empty,
             tool_name = field::Empty,
             from = field::Empty,
+            gen_ai.usage.input_tokens = field::Empty,
+            gen_ai.usage.cache_read.input_tokens = field::Empty,
+            gen_ai.usage.output_tokens = field::Empty,
+            codex.usage.reasoning_output_tokens = field::Empty,
+            codex.usage.total_tokens = field::Empty,
         );
 
         let event = match stream
@@ -1896,7 +1904,7 @@ async fn try_run_sampling_request(
             ResponseEvent::Created => {}
             ResponseEvent::OutputItemDone(item) => {
                 if let Some((_, mut consumer)) = active_tool_argument_diff_consumer.take()
-                    && let Some(event) = consumer.flush_on_complete()
+                    && let Ok(Some(event)) = consumer.finish()
                 {
                     sess.send_event(&turn_context, event).await;
                 }

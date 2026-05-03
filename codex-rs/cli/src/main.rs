@@ -52,7 +52,6 @@ use crate::marketplace_cmd::MarketplaceCli;
 use crate::mcp_cmd::McpCli;
 
 use codex_core::build_models_manager;
-use codex_core::clear_memory_roots_contents;
 use codex_core::config::Config;
 use codex_core::config::ConfigOverrides;
 use codex_core::config::edit::ConfigEditsBuilder;
@@ -61,8 +60,8 @@ use codex_features::FEATURES;
 use codex_features::Stage;
 use codex_features::is_known_feature_key;
 use codex_login::AuthManager;
+use codex_memories_write::clear_memory_roots_contents;
 use codex_models_manager::bundled_models_response;
-use codex_models_manager::collaboration_mode_presets::CollaborationModesConfig;
 use codex_models_manager::manager::RefreshStrategy;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::user_input::UserInput;
@@ -135,10 +134,10 @@ enum Subcommand {
     /// Generate shell completion scripts.
     Completion(CompletionCommand),
 
-    /// Update Grow CLI to the latest version.
+    /// Update Codex to the latest version.
     Update,
 
-    /// Run commands within a Grow CLI-provided sandbox.
+    /// Run commands within a Codex-provided sandbox.
     Sandbox(SandboxArgs),
 
     /// Debugging tools.
@@ -535,10 +534,7 @@ fn format_exit_messages(exit_info: AppExitInfo, color_enabled: bool) -> Vec<Stri
 
     let mut lines = Vec::new();
     if !token_usage.is_zero() {
-        lines.push(format!(
-            "{}",
-            codex_protocol::protocol::FinalOutput::from(token_usage)
-        ));
+        lines.push(token_usage.to_string());
     }
 
     if let Some(resume_cmd) =
@@ -1353,16 +1349,12 @@ async fn run_debug_prompt_input_command(
         ));
     }
 
-    let approval_policy = if shared.full_auto {
-        Some(AskForApproval::OnRequest)
-    } else if shared.dangerously_bypass_approvals_and_sandbox {
+    let approval_policy = if shared.dangerously_bypass_approvals_and_sandbox {
         Some(AskForApproval::Never)
     } else {
         interactive.approval_policy.map(Into::into)
     };
-    let sandbox_mode = if shared.full_auto {
-        Some(codex_protocol::config_types::SandboxMode::WorkspaceWrite)
-    } else if shared.dangerously_bypass_approvals_and_sandbox {
+    let sandbox_mode = if shared.dangerously_bypass_approvals_and_sandbox {
         Some(codex_protocol::config_types::SandboxMode::DangerFullAccess)
     } else {
         shared.sandbox_mode.map(Into::into)
@@ -1416,8 +1408,7 @@ async fn run_debug_models_command(
         let config = Config::load_with_cli_overrides(cli_overrides).await?;
         let auth_manager =
             AuthManager::shared_from_config(&config, /*enable_codex_api_key_env*/ true).await;
-        let models_manager =
-            build_models_manager(&config, auth_manager, CollaborationModesConfig::default());
+        let models_manager = build_models_manager(&config, auth_manager);
         models_manager
             .raw_model_catalog(RefreshStrategy::OnlineIfUncached)
             .await
@@ -1695,7 +1686,7 @@ mod tests {
     use super::*;
     use assert_matches::assert_matches;
     use codex_protocol::ThreadId;
-    use codex_protocol::protocol::TokenUsage;
+    use codex_tui::TokenUsage;
     use pretty_assertions::assert_eq;
 
     fn finalize_resume_from_args(args: &[&str]) -> TuiCli {
@@ -1928,6 +1919,38 @@ mod tests {
     }
 
     #[test]
+    fn sandbox_macos_parses_permissions_profile() {
+        let cli = MultitoolCli::try_parse_from([
+            "codex",
+            "sandbox",
+            "macos",
+            "--permissions-profile",
+            ":workspace",
+            "--",
+            "echo",
+        ])
+        .expect("parse");
+
+        let Some(Subcommand::Sandbox(SandboxArgs {
+            cmd: SandboxCommand::Macos(command),
+        })) = cli.subcommand
+        else {
+            panic!("expected sandbox macos command");
+        };
+
+        assert_eq!(command.permissions_profile.as_deref(), Some(":workspace"));
+        assert_eq!(command.command, vec!["echo"]);
+    }
+
+    #[test]
+    fn sandbox_macos_rejects_explicit_profile_controls_without_profile() {
+        let err = MultitoolCli::try_parse_from(["codex", "sandbox", "macos", "-C", "/tmp"])
+            .expect_err("parse should fail");
+
+        assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
     fn plugin_marketplace_remove_parses_under_plugin() {
         let cli =
             MultitoolCli::try_parse_from(["codex", "plugin", "marketplace", "remove", "debug"])
@@ -1949,6 +1972,35 @@ mod tests {
         let remove_result =
             MultitoolCli::try_parse_from(["codex", "marketplace", "remove", "debug"]);
         assert!(remove_result.is_err());
+    }
+
+    #[test]
+    fn full_auto_no_longer_parses_at_top_level() {
+        let result = MultitoolCli::try_parse_from(["codex", "--full-auto"]);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn exec_full_auto_reports_migration_path() {
+        let cli = MultitoolCli::try_parse_from(["codex", "exec", "--full-auto", "summarize"])
+            .expect("exec should accept removed flag long enough to report a migration path");
+        let Some(Subcommand::Exec(exec)) = cli.subcommand else {
+            panic!("expected exec subcommand");
+        };
+
+        assert_eq!(
+            exec.removed_full_auto_warning(),
+            Some("warning: `--full-auto` is deprecated; use `--sandbox workspace-write` instead.")
+        );
+    }
+
+    #[test]
+    fn sandbox_full_auto_no_longer_parses() {
+        let result =
+            MultitoolCli::try_parse_from(["codex", "sandbox", "linux", "--full-auto", "--"]);
+
+        assert!(result.is_err());
     }
 
     fn sample_exit_info(conversation_id: Option<&str>, thread_name: Option<&str>) -> AppExitInfo {
@@ -2081,14 +2133,13 @@ mod tests {
     }
 
     #[test]
-    fn resume_merges_option_flags_and_full_auto() {
+    fn resume_merges_option_flags() {
         let interactive = finalize_resume_from_args(
             [
                 "codex",
                 "resume",
                 "sid",
                 "--oss",
-                "--full-auto",
                 "--search",
                 "--sandbox",
                 "workspace-write",
@@ -2117,7 +2168,6 @@ mod tests {
             interactive.approval_policy,
             Some(codex_utils_cli::ApprovalModeCliArg::OnRequest)
         );
-        assert!(interactive.full_auto);
         assert_eq!(
             interactive.cwd.as_deref(),
             Some(std::path::Path::new("/tmp"))

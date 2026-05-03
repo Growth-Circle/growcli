@@ -207,7 +207,10 @@ pub async fn run_login_with_agent_identity(
         &config.codex_home,
         &agent_identity,
         config.cli_auth_credentials_store_mode,
-    ) {
+        Some(&config.chatgpt_base_url),
+    )
+    .await
+    {
         Ok(_) => {
             eprintln!("{LOGIN_SUCCESS_MESSAGE}");
             std::process::exit(0);
@@ -221,7 +224,7 @@ pub async fn run_login_with_agent_identity(
 
 pub fn read_api_key_from_stdin() -> String {
     read_stdin_secret(
-        "--with-api-key expects the API key on stdin. Try piping it, e.g. `printenv GC_API_KEY | growcli login --with-api-key`.",
+        "--with-api-key expects the API key on stdin. Try piping it, e.g. `printenv OPENAI_API_KEY | codex login --with-api-key`.",
         "Reading API key from stdin...",
         "No API key provided via stdin.",
     )
@@ -229,7 +232,7 @@ pub fn read_api_key_from_stdin() -> String {
 
 pub fn read_agent_identity_from_stdin() -> String {
     read_stdin_secret(
-        "--with-agent-identity expects the Agent Identity token on stdin. Try piping it, e.g. `printenv CODEX_AGENT_IDENTITY | growcli login --with-agent-identity`.",
+        "--with-agent-identity expects the Agent Identity token on stdin. Try piping it, e.g. `printenv CODEX_AGENT_IDENTITY | codex login --with-agent-identity`.",
         "Reading Agent Identity token from stdin...",
         "No Agent Identity token provided via stdin.",
     )
@@ -362,8 +365,12 @@ pub async fn run_login_with_device_code_fallback_to_browser(
 pub async fn run_login_status(cli_config_overrides: CliConfigOverrides) -> ! {
     let config = load_config_or_exit(cli_config_overrides).await;
 
-    match CodexAuth::from_auth_storage(&config.codex_home, config.cli_auth_credentials_store_mode)
-        .await
+    match CodexAuth::from_auth_storage(
+        &config.codex_home,
+        config.cli_auth_credentials_store_mode,
+        Some(&config.chatgpt_base_url),
+    )
+    .await
     {
         Ok(Some(auth)) => match auth.auth_mode() {
             AuthMode::ApiKey => match auth.get_token() {
