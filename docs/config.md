@@ -8,6 +8,61 @@ account with `-m MODEL_ID` or `model = "MODEL_ID"`.
 See [GrowthCircle provider setup](./growthcircle.md) for endpoint and auth
 details.
 
+## OpenAI-Compatible Chat Providers
+
+For a third-party provider that exposes only the OpenAI-compatible
+`/chat/completions` endpoint, define a custom provider and select its model.
+This does not change the built-in GrowthCircle provider; it is used only when
+`model_provider` points at the custom provider ID:
+
+```toml
+model_provider = "custom-openai-chat"
+model = "MODEL_ID_FROM_PROVIDER"
+
+[model_providers.custom-openai-chat]
+name = "Custom OpenAI-compatible Chat"
+base_url = "https://provider.example/v1"
+env_key = "CUSTOM_OPENAI_API_KEY"
+wire_api = "chat"
+requires_openai_auth = false
+```
+
+Then set the key in your shell:
+
+```shell
+export CUSTOM_OPENAI_API_KEY="sk-..."
+```
+
+Use `wire_api = "responses"` for providers that implement
+`/v1/responses`; use `wire_api = "chat"` for providers that only implement
+OpenAI Chat Completions.
+
+Examples from official provider docs:
+
+```toml
+[model_providers.minimax]
+name = "MiniMax"
+base_url = "https://api.minimax.io/v1"
+env_key = "MINIMAX_API_KEY"
+wire_api = "chat"
+requires_openai_auth = false
+
+[model_providers.zai]
+name = "Z.ai"
+base_url = "https://api.z.ai/api/paas/v4"
+env_key = "ZAI_API_KEY"
+wire_api = "chat"
+requires_openai_auth = false
+```
+
+Provider docs:
+
+- MiniMax OpenAI-compatible API: https://platform.minimax.io/docs/api-reference/text-openai-api
+- Z.ai OpenAI SDK compatibility: https://docs.z.ai/guides/develop/openai/python
+
+A complete sample config with GrowthCircle, MiniMax, Z.ai, and a generic custom
+provider is available at [docs/examples/openai-compatible-chat.toml](./examples/openai-compatible-chat.toml).
+
 For basic configuration instructions, see [this documentation](https://developers.openai.com/codex/config-basic).
 
 For advanced configuration instructions, see [this documentation](https://developers.openai.com/codex/config-advanced).

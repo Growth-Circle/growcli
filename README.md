@@ -66,9 +66,30 @@ model = "MODEL_ID"
 
 Save in `~/.codex/config.toml` or pass on the command line.
 
+GrowthCircle remains the default provider. To try another OpenAI-compatible
+Chat Completions backend, add a separate custom provider and point Grow CLI at
+it only when you want to use it:
+
+```toml
+model_provider = "custom-openai-chat"
+model = "MODEL_ID_FROM_PROVIDER"
+
+[model_providers.custom-openai-chat]
+name = "Custom OpenAI-compatible Chat"
+base_url = "https://provider.example/v1"
+env_key = "CUSTOM_OPENAI_API_KEY"
+wire_api = "chat"
+requires_openai_auth = false
+```
+
+Set `CUSTOM_OPENAI_API_KEY` in your shell and swap `MODEL_ID_FROM_PROVIDER`
+with any model ID accepted by that provider. GrowthCircle models continue to use
+the built-in `growthcircle` provider and `GC_API_KEY`.
+
 ## Documentation
 
 - [GrowthCircle setup](./docs/growthcircle.md)
+- [Sample config](./docs/example-config.md)
 - [Installing & system requirements](./docs/install.md)
 - [Contributing](./docs/contributing.md)
 

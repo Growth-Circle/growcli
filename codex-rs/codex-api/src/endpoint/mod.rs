@@ -1,3 +1,4 @@
+pub(crate) mod chat_completions;
 pub(crate) mod compact;
 pub(crate) mod memories;
 pub(crate) mod models;
@@ -7,6 +8,9 @@ pub(crate) mod responses;
 pub(crate) mod responses_websocket;
 mod session;
 
+pub use chat_completions::ChatCompletionsClient;
+pub use chat_completions::ChatCompletionsOptions;
+pub use chat_completions::ChatCompletionsRequest;
 pub use compact::CompactClient;
 pub use memories::MemoriesClient;
 pub use models::ModelsClient;

@@ -1,0 +1,47 @@
+# Sample ~/.codex/config.toml for Grow CLI.
+#
+# GrowthCircle stays as the default provider. Third-party providers below are
+# selected only when you use the matching profile or set model_provider to that
+# provider ID.
+#
+# Keep API keys in environment variables, not in this file.
+
+model_provider = "growthcircle"
+model = "MODEL_ID_FROM_GROWTHCIRCLE"
+
+[profiles.growthcircle]
+model_provider = "growthcircle"
+model = "MODEL_ID_FROM_GROWTHCIRCLE"
+
+[profiles.minimax]
+model_provider = "minimax"
+model = "MiniMax-M2.7"
+
+[profiles.zai]
+model_provider = "zai"
+model = "glm-5.1"
+
+[profiles.custom_chat]
+model_provider = "custom-openai-chat"
+model = "MODEL_ID_FROM_PROVIDER"
+
+[model_providers.minimax]
+name = "MiniMax"
+base_url = "https://api.minimax.io/v1"
+env_key = "MINIMAX_API_KEY"
+wire_api = "chat"
+requires_openai_auth = false
+
+[model_providers.zai]
+name = "Z.ai"
+base_url = "https://api.z.ai/api/paas/v4"
+env_key = "ZAI_API_KEY"
+wire_api = "chat"
+requires_openai_auth = false
+
+[model_providers.custom-openai-chat]
+name = "Custom OpenAI-compatible Chat"
+base_url = "https://provider.example/v1"
+env_key = "CUSTOM_OPENAI_API_KEY"
+wire_api = "chat"
+requires_openai_auth = false

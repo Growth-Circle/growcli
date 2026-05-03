@@ -8,6 +8,7 @@
 mod apply_patch;
 mod apps;
 mod arc_monitor;
+mod chat_completions_compat;
 mod client;
 mod client_common;
 mod growthcircle_compat;

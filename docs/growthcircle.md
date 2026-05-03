@@ -86,3 +86,32 @@ GrowthCircle exposes these endpoints with the same `GC_API_KEY`:
 - `POST /v1/images/generations` for image generation.
 
 Grow CLI currently uses the Responses API path for the coding agent.
+
+## Third-Party OpenAI-Compatible APIs
+
+GrowthCircle remains the default coding-agent backend. For providers that only
+support OpenAI Chat Completions, create a separate provider with
+`wire_api = "chat"` and select it explicitly:
+
+```toml
+model_provider = "custom-openai-chat"
+model = "MODEL_ID_FROM_PROVIDER"
+
+[model_providers.custom-openai-chat]
+name = "Custom OpenAI-compatible Chat"
+base_url = "https://provider.example/v1"
+env_key = "CUSTOM_OPENAI_API_KEY"
+wire_api = "chat"
+requires_openai_auth = false
+```
+
+Then run:
+
+```shell
+export CUSTOM_OPENAI_API_KEY="sk-..."
+growcli -m MODEL_ID_FROM_PROVIDER
+```
+
+You can add multiple custom providers and switch between them with profiles or
+by changing `model_provider`. GrowthCircle remains available as
+`model_provider = "growthcircle"` with `GC_API_KEY`.
