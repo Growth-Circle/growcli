@@ -189,7 +189,7 @@ function readPackageName() {
 function globalInstallCommand(packageManager) {
   return packageManager === "bun"
     ? `bun install -g ${packageName}@latest`
-    : `npm install -g ${packageName}@latest`;
+    : `npm install -g ${packageName}@latest --include=optional`;
 }
 
 const additionalDirs = [];

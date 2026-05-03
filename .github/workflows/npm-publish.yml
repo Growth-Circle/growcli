@@ -347,6 +347,7 @@ jobs:
           mkdir -p "${stage}/bin" dist
 
           cp codex-cli/bin/codex.js "${stage}/bin/codex.js"
+          cp codex-cli/bin/install-native.js "${stage}/bin/install-native.js"
           cp README.md "${stage}/README.md"
 
           cat > "${stage}/package.json" <<EOF
@@ -359,6 +360,9 @@ jobs:
             "bin": {
               "growcli": "bin/codex.js",
               "grow": "bin/codex.js"
+            },
+            "scripts": {
+              "postinstall": "node bin/install-native.js"
             },
             "engines": {
               "node": ">=16"
