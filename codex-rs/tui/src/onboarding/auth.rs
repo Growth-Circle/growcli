@@ -38,6 +38,8 @@ use ratatui::widgets::Wrap;
 
 use codex_protocol::config_types::ForcedLoginMethod;
 use std::cell::Cell;
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::RwLock;
 use uuid::Uuid;
@@ -101,6 +103,7 @@ pub(crate) enum SignInState {
     ChatGptSuccess,
     ApiKeyEntry(ApiKeyInputState),
     ApiKeyConfigured(ApiKeyConfiguredState),
+    ProviderSwitchRequired(ProviderSwitchState),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -108,6 +111,21 @@ pub(crate) enum SignInOption {
     ChatGpt,
     DeviceCode,
     ApiKey,
+    CustomProvider(usize),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct CustomProviderOption {
+    pub id: String,
+    pub name: String,
+    pub env_key: Option<String>,
+    pub base_url: Option<String>,
+}
+
+#[derive(Clone)]
+pub(crate) struct ProviderSwitchState {
+    pub provider_id: String,
+    pub provider_name: String,
 }
 
 const API_KEY_DISABLED_MESSAGE: &str = "API key login is disabled.";
@@ -197,6 +215,9 @@ impl ContinueWithDeviceCodeState {
 
 impl KeyboardHandler for AuthModeWidget {
     fn handle_key_event(&mut self, key_event: KeyEvent) {
+        if self.handle_provider_switch_key_event(&key_event) {
+            return;
+        }
         if self.handle_api_key_entry_key_event(&key_event) {
             return;
         }
@@ -259,6 +280,9 @@ pub(crate) struct AuthModeWidget {
     pub api_key_env_var: String,
     pub api_key_provider_name: String,
     pub api_key_validation_base_url: Option<String>,
+    pub custom_provider_options: Vec<CustomProviderOption>,
+    pub codex_home: PathBuf,
+    pub should_quit: bool,
     pub animations_enabled: bool,
     pub animations_suppressed: Cell<bool>,
 }
@@ -356,6 +380,12 @@ impl AuthModeWidget {
         if self.is_api_login_allowed() {
             options.push(SignInOption::ApiKey);
         }
+        options.extend(
+            self.custom_provider_options
+                .iter()
+                .enumerate()
+                .map(|(idx, _)| SignInOption::CustomProvider(idx)),
+        );
         options
     }
 
@@ -376,6 +406,12 @@ impl AuthModeWidget {
         if self.is_api_login_allowed() {
             options.push(SignInOption::ApiKey);
         }
+        options.extend(
+            self.custom_provider_options
+                .iter()
+                .enumerate()
+                .map(|(idx, _)| SignInOption::CustomProvider(idx)),
+        );
         options
     }
 
@@ -419,6 +455,9 @@ impl AuthModeWidget {
                 } else {
                     self.disallow_api_login();
                 }
+            }
+            SignInOption::CustomProvider(index) => {
+                self.select_custom_provider(index);
             }
         }
     }
@@ -522,6 +561,24 @@ impl AuthModeWidget {
                         &format!("Paste {} API key", self.api_key_provider_name),
                         "Loads models available to this key",
                     ));
+                }
+                SignInOption::CustomProvider(provider_index) => {
+                    if let Some(provider) = self.custom_provider_options.get(provider_index) {
+                        let description = match (&provider.base_url, &provider.env_key) {
+                            (Some(base_url), Some(env_key)) => {
+                                format!("Use {base_url}; auth from ${env_key}")
+                            }
+                            (Some(base_url), None) => format!("Use {base_url}"),
+                            (None, Some(env_key)) => format!("Auth from ${env_key}"),
+                            (None, None) => "Configured in config.toml".to_string(),
+                        };
+                        lines.extend(create_mode_item(
+                            idx,
+                            option,
+                            &format!("Use custom provider: {}", provider.name),
+                            &description,
+                        ));
+                    }
                 }
             }
             lines.push("".into());
@@ -696,6 +753,35 @@ impl AuthModeWidget {
             .render(area, buf);
     }
 
+    fn render_provider_switch_required(
+        &self,
+        area: Rect,
+        buf: &mut Buffer,
+        state: &ProviderSwitchState,
+    ) {
+        let lines: Vec<Line> = vec![
+            format!(
+                "✓ Default provider set to {} ({})",
+                state.provider_name, state.provider_id
+            )
+            .fg(Color::Green)
+            .into(),
+            "".into(),
+            "  Restart Grow CLI to load the selected provider and its model list.".into(),
+            "".into(),
+            Line::from(vec![
+                "  Press ".dim(),
+                self.confirm_binding().into(),
+                " or ".dim(),
+                self.cancel_binding().into(),
+                " to exit".dim(),
+            ]),
+        ];
+        Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .render(area, buf);
+    }
+
     fn render_api_key_entry(&self, area: Rect, buf: &mut Buffer, state: &ApiKeyInputState) {
         let [intro_area, input_area, footer_area] = Layout::vertical([
             Constraint::Min(4),
@@ -763,6 +849,20 @@ impl AuthModeWidget {
         Paragraph::new(footer_lines)
             .wrap(Wrap { trim: false })
             .render(footer_area, buf);
+    }
+
+    fn handle_provider_switch_key_event(&mut self, key_event: &KeyEvent) -> bool {
+        if !matches!(
+            &*self.sign_in_state.read().unwrap(),
+            SignInState::ProviderSwitchRequired(_)
+        ) {
+            return false;
+        }
+        if keys::CONFIRM.is_pressed(*key_event) || keys::CANCEL.is_pressed(*key_event) {
+            self.should_quit = true;
+            self.request_frame.schedule_frame();
+        }
+        true
     }
 
     fn handle_api_key_entry_key_event(&mut self, key_event: &KeyEvent) -> bool {
@@ -849,6 +949,34 @@ impl AuthModeWidget {
         drop(guard);
         self.request_frame.schedule_frame();
         true
+    }
+
+    fn select_custom_provider(&mut self, index: usize) {
+        let Some(provider) = self.custom_provider_options.get(index).cloned() else {
+            self.set_error(Some(
+                "Custom provider option is no longer available".to_string(),
+            ));
+            self.request_frame.schedule_frame();
+            return;
+        };
+        match write_default_model_provider(&self.codex_home, &provider.id) {
+            Ok(()) => {
+                self.set_error(None);
+                *self.sign_in_state.write().unwrap() =
+                    SignInState::ProviderSwitchRequired(ProviderSwitchState {
+                        provider_id: provider.id,
+                        provider_name: provider.name,
+                    });
+            }
+            Err(err) => {
+                self.set_error(Some(format!("Failed to set default provider: {err}")));
+            }
+        }
+        self.request_frame.schedule_frame();
+    }
+
+    pub(crate) fn should_quit(&self) -> bool {
+        self.should_quit
     }
 
     fn start_api_key_entry(&mut self) {
@@ -1062,6 +1190,7 @@ impl StepStateProvider for AuthModeWidget {
         match &*sign_in_state {
             SignInState::PickMode
             | SignInState::ApiKeyEntry(_)
+            | SignInState::ProviderSwitchRequired(_)
             | SignInState::ChatGptContinueInBrowser(_)
             | SignInState::ChatGptDeviceCode(_)
             | SignInState::ChatGptSuccessMessage => StepState::InProgress,
@@ -1095,6 +1224,9 @@ impl WidgetRef for AuthModeWidget {
             SignInState::ApiKeyConfigured(_) => {
                 self.render_api_key_configured(area, buf);
             }
+            SignInState::ProviderSwitchRequired(state) => {
+                self.render_provider_switch_required(area, buf, state);
+            }
         }
     }
 }
@@ -1107,6 +1239,28 @@ pub(super) fn maybe_open_auth_url_in_browser(request_handle: &AppServerRequestHa
     if let Err(err) = webbrowser::open(url) {
         tracing::warn!("failed to open browser for login URL: {err}");
     }
+}
+
+fn write_default_model_provider(codex_home: &Path, provider_id: &str) -> std::io::Result<()> {
+    let config_path = codex_home.join("config.toml");
+    let original = std::fs::read_to_string(&config_path).unwrap_or_default();
+    let mut replaced = false;
+    let mut lines = Vec::new();
+    for line in original.lines() {
+        if !replaced && line.trim_start().starts_with("model_provider") {
+            lines.push(format!("model_provider = \"{}\"", provider_id));
+            replaced = true;
+        } else {
+            lines.push(line.to_string());
+        }
+    }
+    if !replaced {
+        lines.insert(0, format!("model_provider = \"{}\"", provider_id));
+    }
+    let mut updated = lines.join("\n");
+    updated.push('\n');
+    std::fs::create_dir_all(codex_home)?;
+    std::fs::write(config_path, updated)
 }
 
 fn read_api_key_from_env(env_var: &str) -> Option<String> {

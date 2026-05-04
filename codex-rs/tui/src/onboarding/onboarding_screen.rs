@@ -37,6 +37,7 @@ use crate::legacy_core::config::Config;
 #[cfg(target_os = "windows")]
 use crate::legacy_core::windows_sandbox::WindowsSandboxLevelExt;
 use crate::onboarding::auth::AuthModeWidget;
+use crate::onboarding::auth::CustomProviderOption;
 use crate::onboarding::auth::SignInOption;
 use crate::onboarding::auth::SignInState;
 use crate::onboarding::keys;
@@ -47,7 +48,12 @@ use crate::tui::FrameRequester;
 use crate::tui::Tui;
 use crate::tui::TuiEvent;
 use codex_login::OPENAI_API_KEY_ENV_VAR;
+use codex_model_provider_info::AMAZON_BEDROCK_PROVIDER_ID;
 use codex_model_provider_info::GROWTHCIRCLE_API_KEY_ENV_VAR;
+use codex_model_provider_info::GROWTHCIRCLE_PROVIDER_ID;
+use codex_model_provider_info::LMSTUDIO_OSS_PROVIDER_ID;
+use codex_model_provider_info::OLLAMA_OSS_PROVIDER_ID;
+use codex_model_provider_info::OPENAI_PROVIDER_ID;
 use color_eyre::eyre::Result;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -95,6 +101,30 @@ pub(crate) struct OnboardingResult {
     pub should_exit: bool,
 }
 
+fn custom_provider_options(config: &Config) -> Vec<CustomProviderOption> {
+    const BUILT_IN_PROVIDER_IDS: &[&str] = &[
+        OPENAI_PROVIDER_ID,
+        GROWTHCIRCLE_PROVIDER_ID,
+        AMAZON_BEDROCK_PROVIDER_ID,
+        OLLAMA_OSS_PROVIDER_ID,
+        LMSTUDIO_OSS_PROVIDER_ID,
+    ];
+
+    let mut providers: Vec<CustomProviderOption> = config
+        .model_providers
+        .iter()
+        .filter(|(id, _)| !BUILT_IN_PROVIDER_IDS.contains(&id.as_str()))
+        .map(|(id, provider)| CustomProviderOption {
+            id: id.clone(),
+            name: provider.name.clone(),
+            env_key: provider.env_key.clone(),
+            base_url: provider.base_url.clone(),
+        })
+        .collect();
+    providers.sort_by(|left, right| left.name.cmp(&right.name).then(left.id.cmp(&right.id)));
+    providers
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct ApiKeyEntryContext {
     /// True when onboarding is currently rendering the API-key entry state.
@@ -115,6 +145,7 @@ impl OnboardingScreen {
         let cwd = config.cwd.to_path_buf();
         let codex_home = config.codex_home.to_path_buf();
         let is_growthcircle_provider = config.model_provider.is_growthcircle();
+        let custom_provider_options = custom_provider_options(&config);
         let forced_login_method = if is_growthcircle_provider {
             Some(ForcedLoginMethod::Api)
         } else {
@@ -131,7 +162,8 @@ impl OnboardingScreen {
                 Some(ForcedLoginMethod::Api) => SignInOption::ApiKey,
                 _ => SignInOption::ChatGpt,
             };
-            let initial_sign_in_state = if is_growthcircle_provider {
+            let api_key_only = is_growthcircle_provider && custom_provider_options.is_empty();
+            let initial_sign_in_state = if api_key_only {
                 SignInState::ApiKeyEntry(Default::default())
             } else {
                 SignInState::PickMode
@@ -145,7 +177,7 @@ impl OnboardingScreen {
                     login_status,
                     app_server_request_handle,
                     forced_login_method,
-                    api_key_only: is_growthcircle_provider,
+                    api_key_only,
                     api_key_env_var: if is_growthcircle_provider {
                         GROWTHCIRCLE_API_KEY_ENV_VAR.to_string()
                     } else {
@@ -159,6 +191,9 @@ impl OnboardingScreen {
                     api_key_validation_base_url: is_growthcircle_provider
                         .then(|| config.model_provider.base_url.clone())
                         .flatten(),
+                    custom_provider_options: custom_provider_options.clone(),
+                    codex_home: config.codex_home.to_path_buf(),
+                    should_quit: false,
                     animations_enabled: config.animations,
                     animations_suppressed: std::cell::Cell::new(false),
                 }));
@@ -349,12 +384,10 @@ impl KeyboardHandler for OnboardingScreen {
             if let Some(active_step) = self.current_steps_mut().into_iter().last() {
                 active_step.handle_key_event(key_event);
             }
-            if self.steps.iter().any(|step| {
-                if let Step::TrustDirectory(widget) = step {
-                    widget.should_quit()
-                } else {
-                    false
-                }
+            if self.steps.iter().any(|step| match step {
+                Step::Auth(widget) => widget.should_quit(),
+                Step::TrustDirectory(widget) => widget.should_quit(),
+                Step::Welcome(_) => false,
             }) {
                 self.should_exit = true;
                 self.is_done = true;
