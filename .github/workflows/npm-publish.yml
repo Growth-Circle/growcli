@@ -222,11 +222,59 @@ jobs:
         with:
           target: ${{ matrix.cargo_target }}
 
+      - name: Sync Rust workspace version
+        shell: bash
+        working-directory: codex-rs
+        env:
+          VERSION: ${{ needs.resolve-publish-settings.outputs.version }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("node:fs");
+
+          const version = process.env.VERSION;
+          if (!version) {
+            throw new Error("VERSION is required");
+          }
+
+          const manifestPath = "Cargo.toml";
+          const manifest = fs.readFileSync(manifestPath, "utf8");
+          const sectionHeader = "[workspace.package]";
+          const sectionStart = manifest.indexOf(sectionHeader);
+          if (sectionStart === -1) {
+            throw new Error("Cargo.toml is missing [workspace.package]");
+          }
+
+          const afterHeaderStart = sectionStart + sectionHeader.length;
+          const nextSectionMatch = manifest.slice(afterHeaderStart).match(/\n\[/);
+          const sectionEnd = nextSectionMatch
+            ? afterHeaderStart + nextSectionMatch.index + 1
+            : manifest.length;
+
+          const section = manifest.slice(sectionStart, sectionEnd);
+          const versionPattern = /^version = "[^"]+"$/m;
+          if (!versionPattern.test(section)) {
+            throw new Error("Cargo.toml [workspace.package] is missing version");
+          }
+          const updatedSection = section.replace(
+            versionPattern,
+            `version = "${version}"`,
+          );
+
+          fs.writeFileSync(
+            manifestPath,
+            `${manifest.slice(0, sectionStart)}${updatedSection}${manifest.slice(sectionEnd)}`,
+          );
+          NODE
+          cargo metadata --format-version 1 --no-deps >/dev/null
+
       - name: Build Grow CLI
         shell: bash
         working-directory: codex-rs
         env:
           CARGO_TARGET: ${{ matrix.cargo_target }}
+          VERSION: ${{ needs.resolve-publish-settings.outputs.version }}
+          BINARY_NAME: ${{ matrix.binary_name }}
         run: |
           set -euo pipefail
           build_args=(--release -p codex-cli --bin growcli)
@@ -234,6 +282,21 @@ jobs:
             build_args+=(--target "${CARGO_TARGET}")
           fi
           cargo build "${build_args[@]}"
+
+          if [[ -n "${CARGO_TARGET}" ]]; then
+            built_binary="target/${CARGO_TARGET}/release/${BINARY_NAME}"
+          else
+            built_binary="target/release/${BINARY_NAME}"
+          fi
+
+          version_output="$("${built_binary}" --version)"
+          version_output="${version_output//$'\r'/}"
+          echo "${version_output}"
+          expected_output="growcli ${VERSION}"
+          if [[ "${version_output}" != "${expected_output}" ]]; then
+            echo "Expected '${expected_output}', got '${version_output}'" >&2
+            exit 1
+          fi
 
       - name: Stage native package
         shell: bash
@@ -470,7 +533,14 @@ jobs:
             done
           done
           npm install -g "@growthcircle/growcli@${VERSION}"
-          growcli --version
+          version_output="$(growcli --version)"
+          version_output="${version_output//$'\r'/}"
+          echo "${version_output}"
+          expected_output="growcli ${VERSION}"
+          if [[ "${version_output}" != "${expected_output}" ]]; then
+            echo "Expected '${expected_output}', got '${version_output}'" >&2
+            exit 1
+          fi
 
       - if: ${{ matrix.package_tag == 'linux-x64' }}
         name: Verify on Debian 12
@@ -480,4 +550,4 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm node:22-bookworm bash -lc \
-            "npm install -g '@growthcircle/growcli@${VERSION}' && growcli --version"
+            "set -euo pipefail; npm install -g '@growthcircle/growcli@${VERSION}'; version_output=\"\$(growcli --version)\"; echo \"\${version_output}\"; test \"\${version_output}\" = 'growcli ${VERSION}'"
