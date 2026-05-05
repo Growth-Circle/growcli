@@ -90,7 +90,7 @@ jobs:
     needs: resolve-publish-settings
     if: needs.resolve-publish-settings.outputs.should_publish == 'true'
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
@@ -127,21 +127,38 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - if: ${{ matrix.cargo_target == '' }}
-        uses: dtolnay/rust-toolchain@a0b273b48ed29de4470960879e8381ff45632f26 # 1.93.0
-
-      - if: ${{ matrix.cargo_target != '' }}
-        uses: dtolnay/rust-toolchain@a0b273b48ed29de4470960879e8381ff45632f26 # 1.93.0
-        with:
-          targets: ${{ matrix.cargo_target }}
-
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
           scope: "@growthcircle"
 
-      - if: ${{ endsWith(matrix.cargo_target, '-unknown-linux-musl') }}
+      - name: Check native package already published
+        id: native_package
+        shell: bash
+        env:
+          VERSION: ${{ needs.resolve-publish-settings.outputs.version }}
+          PACKAGE_TAG: ${{ matrix.package_tag }}
+        run: |
+          set -euo pipefail
+          package="@growthcircle/growcli-${PACKAGE_TAG}@${VERSION}"
+          if npm view "${package}" version >/dev/null 2>&1; then
+            echo "${package} already exists; skipping native build"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "${package} does not exist; building native package"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: ${{ steps.native_package.outputs.exists != 'true' && matrix.cargo_target == '' }}
+        uses: dtolnay/rust-toolchain@a0b273b48ed29de4470960879e8381ff45632f26 # 1.93.0
+
+      - if: ${{ steps.native_package.outputs.exists != 'true' && matrix.cargo_target != '' }}
+        uses: dtolnay/rust-toolchain@a0b273b48ed29de4470960879e8381ff45632f26 # 1.93.0
+        with:
+          targets: ${{ matrix.cargo_target }}
+
+      - if: ${{ steps.native_package.outputs.exists != 'true' && endsWith(matrix.cargo_target, '-unknown-linux-musl') }}
         name: Install UBSan runtime (musl)
         shell: bash
         run: |
@@ -149,7 +166,7 @@ jobs:
           sudo apt-get update -y
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libubsan1
 
-      - if: ${{ endsWith(matrix.cargo_target, '-unknown-linux-musl') }}
+      - if: ${{ steps.native_package.outputs.exists != 'true' && endsWith(matrix.cargo_target, '-unknown-linux-musl') }}
         name: Use hermetic Cargo home (musl)
         shell: bash
         run: |
@@ -160,7 +177,7 @@ jobs:
           echo "${cargo_home}/bin" >> "$GITHUB_PATH"
           : > "${cargo_home}/config.toml"
 
-      - if: ${{ endsWith(matrix.cargo_target, '-unknown-linux-musl') }}
+      - if: ${{ steps.native_package.outputs.exists != 'true' && endsWith(matrix.cargo_target, '-unknown-linux-musl') }}
         name: Install Zig
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         env:
@@ -168,14 +185,14 @@ jobs:
         with:
           version: 0.14.0
 
-      - if: ${{ endsWith(matrix.cargo_target, '-unknown-linux-musl') }}
+      - if: ${{ steps.native_package.outputs.exists != 'true' && endsWith(matrix.cargo_target, '-unknown-linux-musl') }}
         name: Install musl build tools
         shell: bash
         env:
           TARGET: ${{ matrix.cargo_target }}
         run: bash "${GITHUB_WORKSPACE}/.github/scripts/install-musl-build-tools.sh"
 
-      - if: ${{ endsWith(matrix.cargo_target, '-unknown-linux-musl') }}
+      - if: ${{ steps.native_package.outputs.exists != 'true' && endsWith(matrix.cargo_target, '-unknown-linux-musl') }}
         name: Configure rustc UBSan wrapper (musl host)
         shell: bash
         run: |
@@ -198,7 +215,7 @@ jobs:
           echo "RUSTC_WRAPPER=${wrapper}" >> "$GITHUB_ENV"
           echo "RUSTC_WORKSPACE_WRAPPER=" >> "$GITHUB_ENV"
 
-      - if: ${{ endsWith(matrix.cargo_target, '-unknown-linux-musl') }}
+      - if: ${{ steps.native_package.outputs.exists != 'true' && endsWith(matrix.cargo_target, '-unknown-linux-musl') }}
         name: Clear sanitizer flags (musl)
         shell: bash
         run: |
@@ -216,13 +233,14 @@ jobs:
           echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=" >> "$GITHUB_ENV"
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=" >> "$GITHUB_ENV"
 
-      - if: ${{ endsWith(matrix.cargo_target, '-unknown-linux-musl') }}
+      - if: ${{ steps.native_package.outputs.exists != 'true' && endsWith(matrix.cargo_target, '-unknown-linux-musl') }}
         name: Configure musl rusty_v8 artifact overrides and verify checksums
         uses: ./.github/actions/setup-rusty-v8-musl
         with:
           target: ${{ matrix.cargo_target }}
 
       - name: Sync Rust workspace version
+        if: steps.native_package.outputs.exists != 'true'
         shell: bash
         working-directory: codex-rs
         env:
@@ -269,6 +287,7 @@ jobs:
           cargo metadata --format-version 1 --no-deps >/dev/null
 
       - name: Build Grow CLI
+        if: steps.native_package.outputs.exists != 'true'
         shell: bash
         working-directory: codex-rs
         env:
@@ -299,6 +318,7 @@ jobs:
           fi
 
       - name: Stage native package
+        if: steps.native_package.outputs.exists != 'true'
         shell: bash
         env:
           VERSION: ${{ needs.resolve-publish-settings.outputs.version }}
@@ -354,6 +374,7 @@ jobs:
           npm pack "${stage}" --pack-destination dist
 
       - name: Publish native package
+        if: steps.native_package.outputs.exists != 'true'
         shell: bash
         env:
           PACKAGE_TAG: ${{ matrix.package_tag }}
